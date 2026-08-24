@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>감가상각비 계산기</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.95rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
+
+        .form-row .form-group {
+            flex: 1;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            color: #667eea;
+            margin: 25px 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .optional-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 10px;
+        }
+
+        .optional-section .section-title {
+            margin-top: 0;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-section {
+            margin-top: 25px;
+            padding: 20px;
+            border-radius: 10px;
+            display: none;
+        }
+
+        .result-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .result-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .download-btn {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 8px;
+            text-decoration: none;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+
+        .download-btn:hover {
+            background: #218838;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-text {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* 금액 입력 필드 스타일 */
+        .amount-input {
+            text-align: right;
+        }
+
+        @media (max-width: 600px) {
+            .form-row {
+                flex-direction: column;
+                gap: 0;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>감가상각비 계산기</h1>
+            <p>Depreciation Calculator (Korean Tax Law)</p>
+        </div>
+
+        <div class="card">
+            <form id="depForm">
+                <!-- 기본 정보 -->
+                <div class="form-group">
+                    <label for="asset_name">자산명 (Asset Name)</label>
+                    <input type="text" id="asset_name" name="asset_name" required
+                           placeholder="예: 업무용 차량">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="asset_type">자산유형 (Asset Type)</label>
+                        <select id="asset_type" name="asset_type" required>
+                            <option value="유형자산">유형자산 (Tangible)</option>
+                            <option value="무형자산">무형자산 (Intangible)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="depreciation_method">상각방법 (Method)</label>
+                        <select id="depreciation_method" name="depreciation_method" required>
+                            <option value="정액법">정액법 (Straight-Line)</option>
+                            <option value="정률법">정률법 (Declining Balance)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="acquisition_date">취득일 (Acquisition Date)</label>
+                        <input type="date" id="acquisition_date" name="acquisition_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="useful_life">내용연수 (Useful Life)</label>
+                        <select id="useful_life" name="useful_life" required>
+                            <option value="3">3년</option>
+                            <option value="4">4년</option>
+                            <option value="5" selected>5년</option>
+                            <option value="6">6년</option>
+                            <option value="7">7년</option>
+                            <option value="8">8년</option>
+                            <option value="10">10년</option>
+                            <option value="12">12년</option>
+                            <option value="15">15년</option>
+                            <option value="20">20년</option>
+                            <option value="40">40년</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="acquisition_cost">취득원가 (Acquisition Cost)</label>
+                    <input type="text" id="acquisition_cost" name="acquisition_cost" required
+                           placeholder="예: 50,000,000" class="amount-input">
+                    <p class="info-text">숫자만 입력 (콤마 자동 추가)</p>
+                </div>
+
+                <!-- 선택 사항 -->
+                <div class="optional-section">
+                    <div class="section-title">선택 사항 (Optional)</div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="increase_date">자본적 지출일</label>
+                            <input type="date" id="increase_date" name="increase_date">
+                        </div>
+                        <div class="form-group">
+                            <label for="increase_amount">자본적 지출액</label>
+                            <input type="text" id="increase_amount" name="increase_amount"
+                                   placeholder="예: 5,000,000" class="amount-input">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="disposal_date">처분일</label>
+                            <input type="date" id="disposal_date" name="disposal_date">
+                        </div>
+                        <div class="form-group">
+                            <label for="disposal_amount">처분금액</label>
+                            <input type="text" id="disposal_amount" name="disposal_amount"
+                                   placeholder="예: 10,000,000" class="amount-input">
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    계산하기 (Calculate)
+                </button>
+            </form>
+
+            <div id="result" class="result-section"></div>
+        </div>
+    </div>
+
+    <script>
+        // 금액 입력 필드 포맷팅 (콤마 추가)
+        function formatNumber(input) {
+            let value = input.value.replace(/[^0-9]/g, '');
+            if (value) {
+                value = parseInt(value).toLocaleString('ko-KR');
+            }
+            input.value = value;
+        }
+
+        // 금액 입력 필드에 이벤트 리스너 추가
+        document.querySelectorAll('.amount-input').forEach(input => {
+            input.addEventListener('input', function() {
+                formatNumber(this);
+            });
+        });
+
+        // 폼 제출 처리
+        document.getElementById('depForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            const resultDiv = document.getElementById('result');
+
+            // 버튼 비활성화 및 로딩 표시
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span>계산 중...';
+            resultDiv.style.display = 'none';
+
+            // 폼 데이터 수집
+            const formData = {
+                asset_name: document.getElementById('asset_name').value,
+                asset_type: document.getElementById('asset_type').value,
+                depreciation_method: document.getElementById('depreciation_method').value,
+                acquisition_date: document.getElementById('acquisition_date').value,
+                useful_life: parseInt(document.getElementById('useful_life').value),
+                acquisition_cost: parseInt(document.getElementById('acquisition_cost').value.replace(/,/g, '')),
+                increase_date: document.getElementById('increase_date').value || null,
+                increase_amount: document.getElementById('increase_amount').value ?
+                    parseInt(document.getElementById('increase_amount').value.replace(/,/g, '')) : null,
+                disposal_date: document.getElementById('disposal_date').value || null,
+                disposal_amount: document.getElementById('disposal_amount').value ?
+                    parseInt(document.getElementById('disposal_amount').value.replace(/,/g, '')) : null
+            };
+
+            try {
+                const response = await fetch('/calculate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    resultDiv.className = 'result-section result-success';
+                    // 서버 응답값은 XSS 방지를 위해 innerHTML이 아닌 textContent로 삽입
+                    resultDiv.innerHTML = `
+                        <strong>계산 완료!</strong><br>
+                        <span class="result-message"></span><br>
+                        <a class="download-btn">Excel 다운로드</a>
+                    `;
+                    resultDiv.querySelector('.result-message').textContent = result.message;
+                    resultDiv.querySelector('.download-btn').href =
+                        '/download/' + encodeURIComponent(result.filename);
+                } else {
+                    resultDiv.className = 'result-section result-error';
+                    resultDiv.innerHTML = '<strong>오류 발생:</strong> <span class="result-message"></span>';
+                    resultDiv.querySelector('.result-message').textContent = result.error;
+                }
+
+            } catch (error) {
+                resultDiv.className = 'result-section result-error';
+                resultDiv.innerHTML = '<strong>서버 오류:</strong> <span class="result-message"></span>';
+                resultDiv.querySelector('.result-message').textContent = error.message;
+            }
+
+            resultDiv.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '계산하기 (Calculate)';
+        });
+
+        // 오늘 날짜를 기본값으로 설정
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date().toISOString().split('T')[0];
+            // 취득일 기본값은 설정하지 않음 (사용자가 직접 선택)
+        });
+    </script>
+</body>
+</html>

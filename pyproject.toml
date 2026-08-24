@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dep-vector"
+dynamic = ["version"]
+description = "법인세법 [별표 4] 감가상각 상각표 재현기 + 더존 고정자산관리대장 검증기"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Han Myeong Su" }]
+
+# 계산 엔진(core·vcore)은 순수 표준 라이브러리다. 아래는 대장 입출력(xlsx)과
+# 웹 UI용 — 엔진만 쓰려면 optional-dependencies 없이도 동작한다.
+dependencies = [
+    "openpyxl>=3.0.0",
+    "python-dateutil>=2.8.0",
+]
+
+[project.optional-dependencies]
+web = ["Flask>=2.0.0"]
+# pandas는 sample_data/verify_ledger.py(실데이터 하네스)가 무조건 import하므로 테스트에 필요
+test = ["pytest>=7.0.0", "pandas>=1.5.0", "pytest-cov>=4.0.0"]
+dev = ["black>=23.0.0", "flake8>=6.0.0"]
+
+[project.scripts]
+depverify = "depverify.__main__:main"
+
+[tool.setuptools.dynamic]
+# 버전 단일 진실원 = vcore.__version__ (검증보고서가 기록하는 엔진 버전과 같은 값)
+version = { attr = "vcore.__version__" }
+
+[tool.setuptools]
+# core = 봉인된 레퍼런스 오라클, vcore = 실행 엔진, depverify = 대장 검증 파이프라인.
+# asset_schedule_generator는 엑셀 상각명세서 생성기(웹·CLI 공용 진입점).
+packages = ["core", "vcore", "depverify"]
+py-modules = ["asset_schedule_generator"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tests_vector"]

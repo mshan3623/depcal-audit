@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# pytest
+.pytest_cache/
+
+# 실고객 데이터 (로컬 검증용 — git 추적 금지)
+sample_data/*.xlsx
+
+# 로컬 아카이브
+_archive/
+
+# 패키징 빌드 산출물
+*.egg-info/
+build/
+dist/
