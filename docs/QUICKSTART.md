@@ -12,9 +12,11 @@
 Python 3.9 이상이 필요합니다. 없으면 [python.org](https://www.python.org/downloads/)에서
 설치하고, Windows 설치 화면에서 **"Add python.exe to PATH"를 반드시 체크**하십시오.
 
+압축파일로 받으셨으면 원하는 위치에 풀고 그 폴더로 이동하십시오(폴더를 나중에 옮기면
+재설치가 필요합니다). git 저장소 주소를 받으셨으면 `git clone <주소> depcal` 후 `cd depcal`.
+
 ```bash
-git clone <이 저장소 주소> depcal
-cd depcal
+cd depcal-share                          # 압축을 푼 폴더
 python -m venv .venv                     # 가상환경 (권장)
 
 # Windows:  .venv\Scripts\activate
