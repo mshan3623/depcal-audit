@@ -76,7 +76,7 @@ def test_difference_reports_deltas():
 
 
 # ── 전기말누계 승계차 허용차 (구 '분할이월 반올림' 오귀속 정정) ──────────────
-# 실측(TI FY2025 내부인테리어): 부분양도가 아니라 자산 분할 시 원자산 누계를
+# 실측(A사 FY2025 자산②): 부분양도가 아니라 자산 분할 시 원자산 누계를
 # 취득가 비례로 배분한 결과 — 총액은 보존되나 자녀별 절사로 ±N원이 승계된다.
 
 def _final_year(**over):
@@ -270,7 +270,7 @@ def test_indirect_method_invariant_allows_fully_depreciated():
 # 당기신규) · 둘다불성립 0 · 사전과 충돌 0.
 
 def _intangible_b(**over):
-    """B사 미등재 무형계정 실측 — 반쯤 상각된 직접법 무형자산."""
+    """B사 '무형A솔루션-무형B' 실측 — 반쯤 상각된 직접법 무형자산."""
     row = {"기초가액": 51_666_667, "전기말상각누계액": 48_333_333,
            "전기말장부가액": 51_666_667, "연수": 5, "취득일자": "2023-07-01",
            "당기상각비범위액": 20_000_000, "당기말상각누계액": 68_333_333,
@@ -289,7 +289,7 @@ def test_identity_restores_intangible_cost():
 def test_unregistered_intangible_account_is_not_silently_tangible():
     """사전 미등재 무형계정이 조용히 유형으로 잡히지 않는다 (핵심 회귀 가드).
 
-    간접법 불변식(기초 > 누계)은 반쯤 상각된 무형을 못 잡는다 — 해당 무형자산은 기초
+    간접법 불변식(기초 > 누계)은 반쯤 상각된 무형을 못 잡는다 — 무형B는 기초
     51,666,667 > 누계 48,333,333이라 불변식을 통과해버린다. 사전에만 의존하면
     취득원가가 순장부가로 축소돼(100,000,000 → 51,666,667) 상각비가 절반으로
     나오고, 감사 조서에는 '차이'로 잘못 귀속된다. 항등식이 이를 잡아낸다.
@@ -390,10 +390,10 @@ def test_reader_matches_verify_ledger_extraction(fy):
     path = verify_ledger.ledger_path(fy)
     if path is None:
         pytest.skip(f"{fy} 결산 대장 xlsx 없음 (로컬 전용 데이터)")
-    assets, unreadable, structural = read_ledger(path, fy)
+    assets, unreadable, structural, _control = read_ledger(path, fy)
     old = verify_ledger.extract_assets(fy)
     assert len(assets) == len(old)
-    assert unreadable == []                       # TI 대장은 전 행 해석 가능
+    assert unreadable == []                       # A사 대장은 전 행 해석 가능
     keys = ("fy", "intang", "cost", "life", "acq_y", "acq_m", "disposed",
             "exp_dep", "exp_acc", "exp_bk", "prev_acc")
     for new_a, old_a in zip(assets, old):

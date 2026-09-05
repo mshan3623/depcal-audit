@@ -173,7 +173,10 @@ def test_separate_asset_time_guards(declining):
 # ── core 경계: 조용한 기본값 대체 금지 (정밀 분석 2026-07-10, P-c) ──────
 
 def _common_data(**overrides):
-    base = {'asset_type': '유형자산', 'asset_name': '테스트자산', 'useful_life': 5,
+    # asset_code가 없으면 AssetInfo.__post_init__이 '자산코드는 필수입니다'로 먼저 막아,
+    # 정작 검사 대상인 날짜 가드까지 실행이 닿지 못한다(감사 G14: 공허 통과).
+    base = {'asset_code': 'A001',
+            'asset_type': '유형자산', 'asset_name': '테스트자산', 'useful_life': 5,
             'beginning_amount': 12_000_000, 'acquisition_date': '2020-04-15',
             'depreciation_method': '정액법'}
     base.update(overrides)

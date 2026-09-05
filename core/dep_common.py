@@ -354,12 +354,20 @@ class DepreciationResult:
 # ================================
 
 def parse_date_safe(date_str: str) -> Tuple[int, int, int]:
-    """안전한 날짜 파싱"""
+    """날짜 파싱 — 해석할 수 없으면 ValueError. 기본값으로 대체하지 않는다.
+
+    이름의 'safe'는 예외를 삼킨다는 뜻이 **아니다**(감사 G18-①·②). 종전에는 어떤 오류든
+    2020-01-01을 돌려줘서, `'2020-13-99'`나 `'날짜아님'`이 무예외로 통과하고
+    `calculation_success=True`에 그럴듯한 상각액까지 나왔다. 상위의 날짜 가드
+    (`depreciation_engine.py`)도 이 함수가 절대 raise하지 않아 죽은 코드였다.
+
+    core는 vcore의 거울(오라클)이다. 오라클이 오타 입력에 그럴듯한 값을 내면 거울
+    스윕이 vcore의 결함을 가릴 수 있다 — 틀린 입력에는 틀렸다고 말해야 한다.
+    """
     try:
         if not date_str or not isinstance(date_str, str):
-            logger.warning(f"잘못된 날짜 형식: {date_str}, 기본값 사용")
-            return 2020, 1, 1
-            
+            raise ValueError(f"날짜가 비었거나 문자열이 아닙니다: {date_str!r}")
+
         date_str = date_str.strip()
         
         # YYYY-MM-DD 형식
@@ -394,10 +402,10 @@ def parse_date_safe(date_str: str) -> Tuple[int, int, int]:
             day = max_day
         
         return year, month, day
-        
-    except Exception as e:
-        logger.error(f"날짜 파싱 오류: {date_str}, 오류: {str(e)}")
-        return 2020, 1, 1
+
+    except ValueError as e:
+        # 삼키지 않고 올린다. 사유를 붙여 어느 값이 문제인지 호출부에 남긴다.
+        raise ValueError(f"날짜 파싱 실패: {date_str!r} — {e}") from e
 
 def get_days_in_month(year: int, month: int) -> int:
     """해당 월의 일수 반환 (윤년 고려)"""
@@ -445,6 +453,29 @@ def round_half_up(x: float) -> int:
     """상용 4사5입(x.5 → 항상 올림). 내장 round()는 banker's rounding(x.5 → 짝수)이라
     원단위 반올림 사이트에서 명시적으로 이 함수를 대신 쓴다. (vcore/projection.py와 동일 정의)"""
     return math.floor(x + 0.5)
+
+
+def annual_straight_line(cost: int, rate: float) -> int:
+    """정액 연 상각액 = 4사5입(cost × rate) — **정수 산술** (2026-09-03, FREEZE 예외 사유 2번).
+
+    rate는 이 모듈의 별표4 float 리터럴(소수 3자리)이므로 round(rate × 1000)으로 1000분율
+    정수를 정확히 복원한다. 종전 `round_half_up(cost * rate)`는 0.142·0.071처럼 이진 표현이
+    참값보다 작은 연수에서 정확히 x.5인 곱을 x.4999…로 만들어 4사5입을 내렸다
+    (10,000,500 × 14년 → 710,035, 정답 710,036). vcore/rate_table.straight_line_annual과
+    같은 산식 — oracle이 같은 결함을 가진 채 남으면 거울 스윕의 의미가 깨지므로 동반 수정.
+    """
+    permille = round(rate * 1000)
+    return (cost * permille + 500) // 1000
+
+
+def yearly_declining(book: int, rate: float, months: int) -> int:
+    """정률 상각액 = 절사(book × rate × months / 12) — **정수 산술** (2026-09-03).
+
+    종전 `int(book * rate * months // 12)`는 정확한 정수 결과(10,000,000 × 0.284 = 2,840,000)를
+    2,839,999.99…로 만들어 1원 내렸다. vcore/rate_table.declining_balance_amount와 같은 산식.
+    """
+    permille = round(rate * 1000)
+    return book * permille * months // 12000
 
 
 def get_fiscal_year(year: int, month: int, fiscal_year_end_month: int) -> int:

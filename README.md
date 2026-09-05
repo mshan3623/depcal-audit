@@ -1,23 +1,17 @@
-# DepCal — 감가상각 계산·검증 엔진
+# 감가상각 계산·검증 정본 (DepCal)
 
-[![Tests](https://img.shields.io/badge/pytest-1%2C099%20passed-brightgreen)]()
-[![Korean Tax Law](https://img.shields.io/badge/법인세법%20별표4-전수%20대조-blue)]()
-[![Accuracy](https://img.shields.io/badge/더존%20실대장-1원%20일치-brightgreen)]()
-[![License](https://img.shields.io/badge/license-Apache--2.0-lightgrey)]()
+[![Status](https://img.shields.io/badge/status-canonical-green)]()
+[![Branch](https://img.shields.io/badge/DepCal.git-vector-blue)]()
+[![Korean Tax Law](https://img.shields.io/badge/Korean%20Tax%20Law-compliant-blue)]()
+[![Accuracy](https://img.shields.io/badge/vs%20reference-1원%20일치-brightgreen)]()
+[![Real Data](https://img.shields.io/badge/A사%20실대장-99%2F99-brightgreen)]()
 
-유형·무형자산 감가상각을 **법인세법 [별표 4]** 기준으로 계산하고, 더존 위하고 등의
-**고정자산관리대장을 취득 시점부터 독립 재계산해 회사 신고값과 1원 단위로 대조**합니다.
+유형/무형자산 감가상각을 한국 법인세법 [별표 4] 기준으로 계산하고, 더존 위하고 등 실제
+고정자산관리대장을 검증하는 **단일 정본 저장소**입니다.
 
-```bash
-pip install -e ".[test]"
-depverify 고정자산관리대장_20241231.xlsx --fy 2024
-#  → 자산별 판정(일치 / 허용차 / 차이 / 검증불능) + 적법성 점검 + 재현성 정보 Excel 보고서
-```
-
-## 👉 처음이시면 [docs/QUICKSTART.md](docs/QUICKSTART.md)
-
-설치부터 "내 고객 대장 하나 검증하기"까지 한 장으로 정리돼 있습니다 — 판정 4분류 읽는 법,
-보고서 4시트, 컬럼명이 다를 때 `--mapping` 쓰는 법, **첫 대장에서 반드시 해야 하는 표본 대조**.
+> **정본화 (2026-06-02)**: 이 저장소가 감가상각 코드의 단일 정본입니다. 구 `Dep_API`는
+> `~/py_apps/_archive/`로 아카이브됐고, 원격 `DepCal.git`의 **`vector` 브랜치**가 기본입니다.
+> (구 이력·릴리스 태그 v2.x는 원격에 보존)
 
 ## 🚨 용도 및 한계 고지 (감사 실무 사용 전 필독)
 
@@ -37,6 +31,7 @@ depverify 고정자산관리대장_20241231.xlsx --fy 2024
 
 검증보고서에는 실행 일시·엔진 버전·소스 리비전·**대장 파일 SHA-256**이 기록됩니다.
 같은 대장을 같은 엔진으로 다시 돌렸을 때 같은 결과가 나옴을 이 정보로 확인하십시오.
+
 ## ⚠️ 범위 (반드시 읽어주세요)
 
 이 엔진은 **법인세법 [별표 4] 상각표 재현기 + 더존 고정자산관리대장 검증기**입니다.
@@ -44,6 +39,29 @@ depverify 고정자산관리대장_20241231.xlsx --fy 2024
 
 **하는 일**: 정액법·정률법·무형자산 직접상각의 [별표 4] 기준 상각액·누계·장부가 계산
 (단순·자본적지출·전체양도·부분양도·조합, 임의 결산월), 더존 위하고 대장과의 1원 대조.
+
+**신설법인 첫 사업연도**도 사업연도가 12개월 미만인 채로 정확히 계산합니다. §26⑧의 안분
+(`× 사업연도 월수 ÷ 12`)과 §26⑨의 월할(`× 사용월수 ÷ 사업연도 월수`)에서 사업연도 월수가
+약분되어, 결과가 언제나 `사용월수 ÷ 12` — 즉 엔진의 첫해 개월수(`13 − 취득월`)와 같아지기
+때문입니다. 예) 5/1 설립: 5월 취득 → (8/12)×(8/8) = 8/12, 9월 취득 → (8/12)×(4/8) = 4/12.
+실대장 실측(더존 산출값 — 설립연도 취득 84건, 상각누계까지 1원 일치)으로 확인했습니다.
+
+**합병·해산으로 소멸하는 법인의 최종(의제) 사업연도**도 계산됩니다. 사업연도 개시일부터
+합병등기일까지의 의제사업연도는 §26⑧에 따라 `× 그 월수 ÷ 12`인데, 이는 그 월수까지만
+상각한 것과 같으므로 `disposal.schedule_full_disposal(..., disp_month=합병등기월)`이 그대로
+정답입니다 — §26⑧의 월수 규칙(역에 따라 계산하되 1월 미만 일수는 1월, 즉 등기월 포함)이
+더존의 양도월 포함 규칙과 일치하기 때문입니다. 예) 12월 결산·2026-05 소멸, 연 상각
+2,400,000원 → FY2026 = 5개월 1,000,000원. 마지막 행 장부가액은 승계될 금액으로 남습니다.
+
+**존속법인이 승계한 자산**은 `separate_asset.schedule_merger_succession(...)`으로 이어서
+계산합니다 — **합병등기월 다음 달부터** 상각합니다. 시행령 문언(§26⑧⑨)대로면 "1월 미만의
+일수는 1월로 한다"가 양쪽에 각각 걸려 등기월이 소멸·존속에 중복 계산되지만(등기 5/15 →
+5개월 + 8개월 = 13개월), 이 저장소는 중복을 배제하는 쪽을 택했습니다. 금액이 이중상각되는
+것은 아닙니다 — §29의2②에 따라 존속법인의 미상각잔액은 양도 당시 장부가액에서 출발하므로,
+늘어나는 것은 그해 합산 상각범위액(한도)뿐입니다. 두 법인의 월수 합 = 그해 12개월은
+`tests_vector/test_merger_succession.py`에 불변식으로 고정돼 있습니다. 승계 쪽 취득가액·
+상각방법·내용연수는 **양도법인 기준**입니다(§29의2② 1호). 비적격합병은 시가 취득이라
+범위 밖입니다(중고자산 수정내용연수 — 아래 참조).
 
 **하지 않는 일** (범위 밖 — 별도 검토 필요):
 - 상각부인액·시인부족액 등 **세무조정**
@@ -54,11 +72,13 @@ depverify 고정자산관리대장_20241231.xlsx --fy 2024
 - **업무용승용차 특례의 세무조정 부분** (법인세법 §27조의2 ②③④) — 업무사용비율,
   800만원 한도초과액의 이월 손금산입, 처분손실 이월, 운행기록부 요건은 범위 밖입니다.
   단 **상각방법·내용연수 강제(시행령 §50조의2 ③: 정액법 5년)는 점검합니다** — 아래 참조.
-- **사업연도 월수 < 12개월** — 신설법인 첫 사업연도·사업연도 변경 시 상각범위액은
-  시행령 §26⑧에 따라 `× 사업연도 월수 ÷ 12`로 안분해야 하나, 이 엔진은 모든
-  회계연도를 12개월로 가정합니다(API에 사업연도 길이 개념이 없음). `fiscal_end_month`는
-  결산월만 바꿀 뿐 사업연도 길이를 바꾸지 않습니다. 해당 사업연도는 수동 조정하세요.
-  (자산을 사업연도 중 취득한 경우의 월할 §26⑨는 **지원합니다** — 혼동 주의.)
+- **사업연도 변경으로 12개월 미만 사업연도가 끼는 경우** — 계속기업이 결산월을 바꿔 짧은
+  사업연도가 한 번 발생하면, 그 사업연도 개시 전부터 보유하던 자산의 상각범위액은 시행령
+  §26⑧에 따라 `× 사업연도 월수 ÷ 12`로 줄어듭니다("사업연도 중 취득"이 아니라 §26⑨ 월할이
+  걸리지 않아 ⑧만 순수하게 남습니다). 이 엔진은 모든 중간 회계연도를 12개월로 가정하므로
+  그 전환기 사업연도를 과대계상합니다 — 수동 조정하세요. `fiscal_end_month`는 결산월만
+  바꿀 뿐 전환기 사업연도의 길이를 바꾸지 않습니다. **신설법인 첫 사업연도와 소멸법인의
+  최종 사업연도는 범위 밖이 아닙니다** — 위 「하는 일」 참조.
 
 **전제 (입력 측 — 즉시상각의 의제로 걸러진 대장)**:
 - **비망가액은 1,000원 고정**입니다. 법령 문언(시행령 제26조⑦)은 min(취득가액×5%,
@@ -68,26 +88,27 @@ depverify 고정자산관리대장_20241231.xlsx --fy 2024
   개인용컴퓨터(주변기기 포함)와 ⑥2호 공구·가구·전기기구·비품·시계·시험기기·
   측정기기·간판은 **금액 한도 없이** 전액 손금. 따라서 이 엔진이 받는 자산은 전부
   min(…)=1,000원 구간입니다. 근거 전문은 `vcore/projection.py` MEMORANDUM 주석.
-## ✅ 이 계산을 믿을 근거
 
-계산기를 믿는 근거는 "돌려봤더니 되더라"가 아니라 **무엇과 대조했는가**입니다.
-`pytest -q` 한 줄로 아래 전부가 매번 재검증됩니다 (1,099 통과 / 7 skip = 원저자 로컬 데이터 전용).
+## 📦 설치
 
-| 축 | 내용 |
-|---|---|
-| **손계산 골든값** | 정액·정률·무형 17개 계산 경로를 12월·3월 결산 손계산 절대값과 대조 (외부기준) |
-| **법령 별표4 3자 대조** | 법령 PDF ↔ `vcore` ↔ `core` 를 내용연수 59개 × 방법 2개 전수 대조 |
-| **더존 실대장 실측** | 실제 대장 4개(2개사) 대조 결과를 **익명 골든 픽스처**로 박제 — 자산명·계정 등 식별정보를 제거한 수치·플래그만 담아 고객 파일 없이 CI 상시 재현 |
-| **독립 오라클 동등성** | 계통이 다른 레거시 엔진(`core`)과 회계연도 단위 1원 일치 회귀 432건 |
-| **불변식 가드** | 장부가 ≥ 비망가, 누계 단조증가, 간접법 `기초가액 > 전기말누계` 등 |
+`core`·`vcore`·`depverify`는 정규 파이썬 패키지입니다. `PYTHONPATH` 설정이나 `sys.path`
+조작 없이 임의 디렉터리에서 import됩니다.
 
-경로별 검증 등급 — 어디가 외부기준으로 검증됐고 어디가 자기참조뿐인지 — 은
-**[docs/TRUTH_MATRIX.md](docs/TRUTH_MATRIX.md)** 에 표로 공개돼 있습니다.
-빈칸을 숨기지 않는 것이 이 문서의 목적입니다.
+```bash
+pip install -e ".[test,web]"     # 또는 pip install -r requirements.txt (동일)
+```
 
-**아직 약한 곳**: 대장 **리더**(엑셀 파싱)는 표본이 2개사뿐입니다. 엔진은 수식이라 표본이
-작아도 되지만 리더는 남의 대장 레이아웃을 읽는 물건이라 **표본이 곧 신뢰도**입니다.
-새 고객 대장의 첫 회에는 반드시 표본 대조를 하십시오([QUICKSTART 6절](docs/QUICKSTART.md#6-첫-대장에서는-반드시-표본-대조를-하십시오)).
+```python
+from vcore.straight_line import schedule
+schedule(cost=100_000_000, life_years=5, acq_year=2025, acq_month=3)   # 정액법 상각표
+```
+
+```bash
+depverify 대장.xlsx --fy 2024 --out report.xlsx    # 대장 일괄 검증 CLI
+```
+
+의존성 버전은 `pyproject.toml`이 단일 진실원이고, `requirements.txt`는 얇은 포워더입니다.
+CI는 저장소 **밖** 디렉터리에서 import를 실행해 패키지 경계가 실제로 성립하는지 매번 검증합니다.
 
 ## 🚗 적법성 점검 — 재계산이 잡지 못하는 축
 
@@ -108,6 +129,7 @@ depverify 고정자산관리대장_20241231.xlsx --fy 2024
 > 대상은 「개별소비세법」 §1②3호 승용자동차(화물차·승합차 9인승 이상·경차 제외)이고,
 > 운수업·자동차판매업 등 영업용과 연구개발용은 제외됩니다(시행령 §50조의2 ①). 후보를 넓게
 > 뽑아 근거와 함께 보여주며, 해당 여부와 결론은 감사인이 판단합니다.
+
 ## 🧱 두 개의 엔진 레이어
 
 | 레이어 | 역할 | 실행 경로 | 상태 |
@@ -120,8 +142,10 @@ depverify 고정자산관리대장_20241231.xlsx --fy 2024
 import 그래프를 정적 검사해 이 경계를 고정합니다(함수 내부 지연 import까지 검출).
 
 그렇다고 `core`를 지워도 되는 것은 **아닙니다.** 치우면 vcore≡core 동등성 회귀 432건과
-상각률표 3자 대조의 독립 증인이 함께 사라집니다. 신규 로직은 `vcore/`에서 개발하고,
-`core/`는 정확성 버그·보안 패치만 수정합니다. 자세한 정책: [FREEZE_NOTICE.md](FREEZE_NOTICE.md)
+상각률표 3자 대조의 독립 증인이 함께 사라집니다. 아카이브 조건은 ① 더존 대장 표본이
+충분히 늘고 ② vcore 구조가 안정되고 ③ 상각률표 독립 증인을 core 밖에 따로 확보한 뒤입니다.
+
+`tests_vector/`가 **vcore ≡ core(레퍼런스)** 를 회계연도 단위 **1원까지** 회귀 검증합니다.
 
 ### 상각률표는 `vcore/rate_table.py`가 정본입니다
 
@@ -142,6 +166,133 @@ legal/정률법정액법상각률.pdf ──전사──> tests_vector/fixtures/
 
 > 세법 개정 시 **vcore와 core의 표를 둘 다** 갱신해야 합니다 — 한쪽만 고치면 3자 대조가 막습니다.
 
+**계산도 이 정수로 합니다 (3.6.0).** 연 상각액은 `rate_table.straight_line_annual`
+(`(취득원가 × s + 500) // 1000`, 4사5입)과 `rate_table.declining_balance_amount`
+(`기초장부가 × d × 개월수 // 12000`, 절사) 두 정수 함수에만 있고, float 상각률(`s/1000`)은
+계산 경로에서 쓰지 않습니다. float로 곱하면 0.284·0.142·0.071처럼 이진 표현이 참값보다 작은
+연수에서 정확한 정수 결과와 정확히 x.5인 곱이 1원 내려갑니다(10,000,000 × 9년 정률 →
+2,839,999; 10,000,500 × 14년 정액 → 710,035). 5년율(0.2·0.451)은 우연히 float가 정확한 구간이라
+더존 실측 105건이 전부 통과했던 것이며, 단수 규칙(정액 4사5입·정률 절사) 자체는 바뀌지 않았습니다.
+회귀 가드는 `tests_vector/test_integer_arithmetic_litmus.py`, 배경은 `docs/audit_lattice_2026-09-03.md`.
+
+> **끝수 처리 전문: [`docs/ROUNDING_POLICY.md`](docs/ROUNDING_POLICY.md)** — 법령에 원 미만
+> 규정이 없어 이 규칙은 '정답'이 아니라 '선택'입니다. 더존은 원 단위 처리를 설정으로 두므로
+> **귀사의 더존 설정을 먼저 확인**하십시오. 월할이 월마다 절사된다는 오해도 그 문서에서 정정합니다.
+
+즉 vcore는 검증된 레퍼런스와 동일한 수치를 내면서 훨씬 슬림한 구현입니다.
+
+> core는 실행 경로에서 완전히 배제된 **oracle-only 봉인** 상태입니다(2026-07-02). 다만 이 봉인은
+> 과도기입니다 — vcore가 core의 모든 기능을 병렬·독립적으로 오류 없이 재현한다고 확인되면 core는
+> 대조 축 역할을 접고 순수 보존(박제)으로 넘어갈 예정입니다. 자세한 내용은 [FREEZE_NOTICE.md](FREEZE_NOTICE.md) 참조.
+
+## 📁 구조
+
+```
+dep_vector/                        # DepCal 정본 (DepCal.git: vector 브랜치)
+├── vcore/                         # ⭐ 슬림 코어 (벡터 프로젝션)
+│   ├── straight_line.py           #   정액법
+│   ├── declining_balance.py       #   정률법
+│   ├── capex.py                   #   자본적지출
+│   ├── disposal.py                #   전체/부분양도
+│   ├── intangible.py              #   무형자산(직접상각 = 별표4 정액)
+│   ├── projection.py  monthly.py  #   공유 골격(좌표변환·월별 빌더)
+├── core/                          # 레거시 레퍼런스 엔진 (🔒 oracle-only 봉인)
+│   ├── depreciation_engine.py     #   메인 엔진
+│   ├── dep_tang_engine.py         #   유형자산
+│   ├── dep_intang_engine.py       #   무형자산
+│   ├── dep_common.py  utils.py    #   공통·유틸
+├── depcal.py                      # CLI 인터페이스
+├── asset_schedule_generator.py    # Excel 스케줄 생성기
+├── tests/                         # 레거시 엔진 시나리오 테스트 (12/12)
+├── tests_vector/                  # vcore ≡ 레퍼런스 회귀 가드 (1원 일치)
+└── sample_data/                   # 실대장 검증 데이터 + 하네스 (고객 데이터 — private)
+```
+
+## 🚀 빠른 시작
+
+```bash
+pip install -r requirements.txt
+
+# CLI 실행
+python depcal.py
+#  자산명 / 취득일자 / 취득원가 / 내용연수 / 자산유형 / 감가상각방법 입력
+#  → output/감가상각스케줄_*.xlsx
+```
+
+vcore를 직접 사용:
+
+```python
+from vcore import straight_line, declining_balance, disposal
+# 회계연도별 (연도, 개월, 당기상각, 누계, 기말장부) 벡터 반환
+rows = straight_line.schedule(cost=10_000_000, life_years=5, acq_year=2023, acq_month=3)
+```
+
+## 🧪 지원 시나리오
+
+| # | 시나리오 | 정액법 | 정률법 | 무형자산 |
+|---|---------|:------:|:------:|:-------:|
+| 1 | 기본 감가상각 | ✅ | ✅ | ✅ |
+| 2 | 자본적지출 | ✅ | ✅ | ❌ |
+| 3 | 부분양도 | ✅ | ✅ | ✅ |
+| 4 | 전체양도/폐기 | ✅ | ✅ | ✅ |
+
+### 테스트
+```bash
+pytest -q                                   # 전체 (936 통과)
+python tests/test_depreciation_scenarios.py # 레거시 엔진 12/12 (oracle 스냅샷)
+# tests_vector/: vcore vs 레퍼런스 1원 일치 회귀 가드 + 손계산 절대 골든값
+```
+더존 실측 대조(`tests_vector/test_real_ledger_a.py`)는 익명 골든 픽스처
+(`tests_vector/fixtures/douzone_golden_a.json`, 99건)로 CI에서 xlsx 파일 없이도
+상시 실행됩니다. 상세 경로별 검증 등급은 [docs/TRUTH_MATRIX.md](docs/TRUTH_MATRIX.md) 참조.
+
+## 🔎 실데이터 검증 (더존 위하고)
+
+본 저장소의 **`depverify/`** 가 더존 고정자산관리대장(엑셀)을 파싱→표준화→vcore 재계산→
+회사 신고값과 대조합니다(기본 **원단위 완전일치**, `--tolerance N`으로 허용차 지정).
+
+```bash
+python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx]
+# 종료코드: 0 = 전 자산 일치, 1 = 차이/검증불능 존재, 2 = 실행 오류
+```
+
+> **자매 앱 `../dep_verify`도 현역입니다** — 더존 출력물을 파싱→표준스키마화해 본 엔진과의
+> 대조를 쉽게 해주는 별도 저장소이며, `core/vcore_engine.py`가 vcore를 직접 import합니다
+> (2026-08-11 재실행: pytest 19 passed · A사 3개년 99/99).
+>
+> ⚠️ **자산유형·취득원가 판별은 `depverify/reader.py`의 `classify_asset()` 1벌뿐입니다**
+> (2026-08-11 단일화). `dep_verify/parsers`가 이 함수를 import해서 쓰므로 **사본을 만들지 마세요.**
+> 판별이 두 벌이던 동안 같은 B사 대장에서 무형 2건의 취득원가가 갈렸습니다
+> (개발비 1,000 vs 37,000,000 · 무형B 51,666,667 vs 100,000,000). 단일화 후 4개 대장
+> 140행에서 두 도구 불일치 0. 상세: [docs/FITNESS_AUDIT_2026-08-11.md](docs/FITNESS_AUDIT_2026-08-11.md) §9·§10
+
+- **A사 실대장 검증**: 2022·2024·2025 = **99/99 (100%)** — 폐기·양도·분할양도 포함
+- 더존 컬럼 의미·계산 규칙은 **[`../dep_verify/docs/DOUZONE_COLUMNS.md`](../dep_verify/docs/DOUZONE_COLUMNS.md)** 참조
+  - 양도자산: 더존은 **양도월까지 월할**(공식 확인), 엔진 기본은 직전월까지(정론) — 컨벤션 선택 가능
+  - 무형자산: 직접상각(기초가액=장부가액, 취득원가=기초가+전기말누계)
+  - **유형/무형 판별은 계정과목명 사전이 아니라 대장 자체의 항등식이 1순위**입니다 —
+    간접법(유형) `전기말장부가액 = 기초가액 − 전기말누계` / 직접법(무형) `전기말장부가액 = 기초가액`.
+    둘 다 아니거나 사전과 어긋나면 한쪽을 조용히 고르지 않고 **검증불능**으로 올립니다
+    (사전만 믿으면 미등재 무형계정의 취득원가가 순장부가로 조용히 축소됩니다)
+  - 분할양도: 한 자산을 양도분/잔류분 두 행으로 분할
+
+## 🔒 Code Freeze — `core/` (레거시 레퍼런스, oracle-only 봉인)
+
+`core/`는 vcore의 정확성 oracle이므로 **실행 경로에서 완전히 배제**되고 골든 대조·불변식
+테스트 전용으로만 남습니다(2026-07-02 oracle-only 봉인 선언). 다음만 수정 허용:
+
+1. 정확성에 영향을 주는 회계 버그 (core 자체 결함이 확실하면 vcore로 우회하지 않고 직접 수정)
+2. 보안 패치
+
+(과거 사유였던 "한국 세법 변경"은 제외 — 세법 변경은 `vcore/`에만 반영하고 core는 그
+시점 상각률표 스냅샷으로 둡니다.)
+
+이 봉인은 영구 상태가 아니라 과도기입니다. vcore가 core의 모든 기능을 병렬·독립적으로
+오류 없이 재현한다고 확인되면 core는 대조 축 역할을 접고 순수 보존(박제)으로 넘어갑니다.
+
+신규 로직은 **`vcore/`** 에서 개발하고, `tests_vector/`로 레퍼런스 등가성을 유지합니다.
+자세한 정책: **[FREEZE_NOTICE.md](FREEZE_NOTICE.md)**
+
 ## 📐 계산 특성 — 정률법 마지막 달 폭증
 
 정률법은 *잔액 × 상각률*로 상각하므로 내용연수 종료 시점에 잔액 약 5%(예: 5년 0.451 →
@@ -155,77 +306,17 @@ legal/정률법정액법상각률.pdf ──전사──> tests_vector/fixtures/
 |---|---:|---:|
 | 2026-11 | 341,416 | 5,328,681 |
 | **2026-12 (마지막)** | **5,327,681** | **1,000** |
-## 🐍 파이썬에서 직접 쓰기
-
-```python
-from vcore import straight_line, declining_balance
-
-# 회계연도별 (연도, 개월수, 당기상각, 누계, 기말장부가) 벡터
-straight_line.schedule(cost=100_000_000, life_years=5, acq_year=2025, acq_month=3)
-declining_balance.schedule(cost=100_000_000, life_years=5, acq_year=2025, acq_month=3)
-```
-
-월 단위 스케줄이 필요하면 `vcore.monthly_schedule.monthly_events`가 단일 진입점입니다.
-자본적지출·전체양도·부분양도·임의 결산월은 `vcore/capex.py`·`vcore/disposal.py` 참조.
-
-엑셀 상각명세서를 만들려면 `python depcal.py`(대화형 CLI) 또는 `asset_schedule_generator`,
-브라우저 UI가 필요하면 `python dep_cal_web.py`(기본 `127.0.0.1` 루프백 바인딩 — 사내망에 열지 마십시오).
-
-## 📁 구조
-
-```
-├── vcore/                    # ⭐ 실행 엔진 (벡터 프로젝션)
-│   ├── straight_line.py      #   정액법
-│   ├── declining_balance.py  #   정률법
-│   ├── intangible.py         #   무형자산 직접상각
-│   ├── capex.py disposal.py  #   자본적지출 · 전체/부분양도
-│   ├── rate_table.py         #   [별표 4] 상각률표 (정본)
-│   └── projection.py …       #   공유 골격(좌표변환·월별 빌더)
-├── depverify/                # 대장 검증 파이프라인
-│   ├── reader.py             #   엑셀 파싱 · 유형/무형 판별
-│   ├── verdict.py            #   판정 4분류 엔진
-│   ├── compliance.py         #   적법성 점검(업무용승용차)
-│   ├── provenance.py         #   재현성 정보(대장 SHA-256 등)
-│   └── report.py             #   Excel 보고서 4시트
-├── core/                     # 레거시 레퍼런스 엔진 (🔒 테스트 전용 오라클)
-├── depcal.py                 # 대화형 CLI (상각명세서)
-├── dep_cal_web.py            # 웹 UI (Flask, 루프백 기본)
-├── tests/ tests_vector/      # 1,099건 — 손계산 골든 · 3자 대조 · 실측 픽스처
-├── legal/                    # 법령 [별표 4] 상각률표 원본 PDF
-└── sample_data/              # 대장 검증 하네스 (고객 대장 파일은 포함되지 않음)
-```
-
-## 🧪 개발·테스트
-
-```bash
-pip install -e ".[test,web]"
-pytest -q                       # 1,099 passed, 7 skipped
-python ci/smoke_depverify.py    # CLI 엔드투엔드 스모크
-```
-
-`sample_data/`의 라이브 대장 대조 테스트 7건은 고객 xlsx가 없으면 skip됩니다 — 정상입니다.
-실측 근거는 익명 픽스처(`tests_vector/fixtures/douzone_golden_*.json`)로 이미 박제돼 있습니다.
-
-> **고객 대장을 이 저장소에 커밋하지 마십시오.** `.gitignore`가 `sample_data/*.xlsx`를
-> 막지만 다른 경로는 막지 않습니다. 대장은 저장소 밖에 두고 경로로 넘기십시오.
 
 ## 📚 문서
 
-- **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — 설치부터 대장 검증까지 (여기서 시작)
-- [docs/TRUTH_MATRIX.md](docs/TRUTH_MATRIX.md) — 계산 경로별 검증 등급, 원단위 단수처리 조사 결론
-- [FREEZE_NOTICE.md](FREEZE_NOTICE.md) — `core/` 오라클 봉인 정책
 - [CHANGELOG.md](CHANGELOG.md) — 버전 히스토리
-
-## 🐛 반례를 보내주십시오
-
-이 도구에 가장 값진 입력은 **틀린 사례**입니다. 결과가 대장과 어긋나거나 리더가 컬럼을
-잘못 읽으면, 해당 대장(또는 재현되는 최소 행)과 실행한 명령을 알려주십시오.
-`검증불능`으로 멈춘 사유 코드도 유용합니다 — 지원 범위를 넓힐 후보가 됩니다.
+- [FREEZE_NOTICE.md](FREEZE_NOTICE.md) — `core/` 동결 정책
+- [PRODUCTION_CERTIFICATION.md](PRODUCTION_CERTIFICATION.md) — 품질 인증
+- [../dep_verify/docs/DOUZONE_COLUMNS.md](../dep_verify/docs/DOUZONE_COLUMNS.md) — 더존 컬럼 정의·검증 규칙
 
 ## 📄 라이선스
 
-Apache License 2.0 — [LICENSE](LICENSE) · [NOTICE](NOTICE).
-**어떠한 보증도 없이(AS IS)** 제공됩니다.
+Private Use. 자세한 내용은 [LICENSE](LICENSE) · [NOTICE](NOTICE) 참조.
 
 ## 🙏 Credits
 

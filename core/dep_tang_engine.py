@@ -40,6 +40,7 @@ from .dep_common import (
     STRAIGHT_LINE_RATES,
     DECLINING_BALANCE_RATES,
     DEFAULT_DECLINING_RATE,
+    annual_straight_line, yearly_declining,
     # 데이터 클래스
     DepreciationMethod,
     AssetFinancials,
@@ -120,7 +121,7 @@ def _calculate_korean_straight_line_enhanced(cost: int, life_years: int,
                 available_years = sorted([y for y in STRAIGHT_LINE_RATES.keys() if y <= life_years])
                 straight_line_rate = STRAIGHT_LINE_RATES[available_years[-1]] if available_years else STRAIGHT_LINE_RATES[60]
             
-            annual_dep = round_half_up(cost * straight_line_rate)
+            annual_dep = annual_straight_line(cost, straight_line_rate)   # 정수 산술 (2026-09-03)
             
             # 당기 시작: 전기말 다음 회계연도 1월
             # 내용연수 완료 시점 계산
@@ -294,7 +295,7 @@ def _calculate_korean_straight_line_enhanced(cost: int, life_years: int,
                 logger.warning(f"내용연수 {life_years}년은 테이블 범위 초과. 60년 상각률 사용: {straight_line_rate:.3f}")
 
         # 2. 일반적인 연간감가상각비 계산 (법인세법 상각률 적용)
-        standard_annual_depreciation = round_half_up(cost * straight_line_rate)
+        standard_annual_depreciation = annual_straight_line(cost, straight_line_rate)   # 정수 산술 (2026-09-03)
         logger.info(f"일반적인 연간감가상각비: {standard_annual_depreciation:,}원 (취득원가 {cost:,}원 × 상각률 {straight_line_rate:.3f})")
         
         # 계산 변수 초기화
@@ -498,7 +499,7 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
                 current_year_months = 12
                 if dep_complete_month < 12 and current_year == dep_complete_year:
                     current_year_months = dep_complete_month
-            yearly_dep = int(sep_book * sep_rate * current_year_months // 12)
+            yearly_dep = yearly_declining(sep_book, sep_rate, current_year_months)   # 정수 산술 (2026-09-03)
             if (not disposal_date) and current_year == dep_complete_year:
                 dep_amount = remaining_depreciable                # 종료해: 잔액 전액(5% 잔재 정리)
             else:
@@ -606,7 +607,7 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
                 year_start_book_value = current_book_value
 
                 # 연간상각비 = year_start_book_value × 상각률 × 회계기간 내 자산 상각 개월수 / 12
-                yearly_depreciation = int(year_start_book_value * depreciation_rate * months_in_year // 12)
+                yearly_depreciation = yearly_declining(year_start_book_value, depreciation_rate, months_in_year)   # 정수 산술 (2026-09-03)
 
                 # 비망가 한도 적용 (정액 경로와 동일 — remaining ≤ 0도 캡 발동, 2026-07-25)
                 remaining_depreciable = current_book_value - memorandum_value
@@ -769,8 +770,11 @@ def _calculate_with_increase(cost: int, life_years: int, start_date: str,
             break
 
     if not prev_month_record:
-        logger.error(f"증가 직전월({prev_year}-{prev_month:02d})을 찾을 수 없습니다")
-        return base_schedule
+        # base를 그대로 돌려주면 **자본적지출이 없던 것처럼** 상각표가 나온다(감사 G18-⑤).
+        # 조용히 빠진 증가액은 표만 보고는 알 수 없다 — vcore의 같은 조건도 ValueError다.
+        raise ValueError(
+            f"자본적지출 직전월({prev_year}-{prev_month:02d})이 상각 기간 밖입니다 "
+            f"— 증가 시점이 취득월 이전이거나 내용연수 종료 이후")
 
     logger.info(f"증가 직전월 ({prev_year}-{prev_month:02d}) 장부가액: {prev_month_record.book_value:,}원")
 
@@ -836,8 +840,9 @@ def _calculate_with_increase(cost: int, life_years: int, start_date: str,
             logger.info(f"양도 직전월({disposal_prev_year}-{disposal_prev_month:02d})까지 {len(vector_months_before_disposal)}개월")
 
     if not vector_months_before_disposal:
-        logger.error("증가월 이후 Vector를 찾을 수 없습니다")
-        return base_schedule
+        # 위와 같은 이유로 조용히 넘기지 않는다 (감사 G18-⑤).
+        raise ValueError("자본적지출 이후 상각할 기간이 없습니다 "
+                         "— 증가 시점이 내용연수 종료 이후이거나 양도 이후")
 
     vector_months = vector_months_before_disposal
 
@@ -1087,8 +1092,11 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
             break
 
     if not prev_month_record:
-        logger.error(f"증가 직전월({prev_year}-{prev_month:02d})을 찾을 수 없습니다")
-        return base_schedule
+        # base를 그대로 돌려주면 **자본적지출이 없던 것처럼** 상각표가 나온다(감사 G18-⑤).
+        # 조용히 빠진 증가액은 표만 보고는 알 수 없다 — vcore의 같은 조건도 ValueError다.
+        raise ValueError(
+            f"자본적지출 직전월({prev_year}-{prev_month:02d})이 상각 기간 밖입니다 "
+            f"— 증가 시점이 취득월 이전이거나 내용연수 종료 이후")
 
     logger.info(f"증가 직전월 ({prev_year}-{prev_month:02d}) 장부가액: {prev_month_record.book_value:,}원")
 
@@ -1157,8 +1165,9 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
     vector_months = vector_months_before_disposal
 
     if not vector_months:
-        logger.error("증가월 이후 Vector를 찾을 수 없습니다")
-        return base_schedule
+        # 위와 같은 이유로 조용히 넘기지 않는다 (감사 G18-⑤).
+        raise ValueError("자본적지출 이후 상각할 기간이 없습니다 "
+                         "— 증가 시점이 내용연수 종료 이후이거나 양도 이후")
 
     # 증가 후 상태 초기화
     current_book_value = combined_book_value
@@ -1644,7 +1653,7 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
             available = sorted([y for y in STRAIGHT_LINE_RATES.keys() if y <= life_years])
             rate = STRAIGHT_LINE_RATES[available[-1]] if available else STRAIGHT_LINE_RATES[60]
         
-        annual_dep = round_half_up(cost * rate)
+        annual_dep = annual_straight_line(cost, rate)   # 정수 산술 (2026-09-03)
         remaining_depreciable = cost - prior_accumulated - memorandum_value
         
         if remaining_depreciable <= 0:
@@ -1700,7 +1709,7 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
         logger.info(f"부분양도 시점: 누적 {prev_acc:,} → 잔존누적 {current_accumulated:,}, 잔존BV {current_book_value:,}")
         
         # 양도 후: 잔존부분 계속 상각 (양도월~12월)
-        remaining_annual = round_half_up(remaining_cost * rate)
+        remaining_annual = annual_straight_line(remaining_cost, rate)   # 정수 산술 (2026-09-03)
         months_after = 12 - dp_prev_month  # 양도월~12월
         
         # 내용연수 완료 확인

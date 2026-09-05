@@ -105,6 +105,13 @@ def validate_asset_inputs(cost: int, acq_month: int, fiscal_end_month: int) -> N
     예외 대신 '그럴듯한 오답 표'로 흘러나오는 것을 막는다(내용연수는 상각률 조회
     rate_table의 상각률 조회에서 검증 — 단일 관문).
     """
+    # 타입을 먼저 본다. 종전에는 값 범위만 봐서 `cost=12_000_000.5`가 그대로 흘러
+    # 장부가액 9,600,000.5 같은 소수 금액이 나왔다(감사 G21) — 원 단위 대조 도구에서
+    # 소수 금액은 그 자체로 오답이다. bool은 int의 하위형이라 따로 막는다.
+    for name, value in (("cost", cost), ("acq_month", acq_month),
+                        ("fiscal_end_month", fiscal_end_month)):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{name}는 정수여야 합니다 ({name}={value!r}, {type(value).__name__})")
     if cost <= MEMORANDUM:
         # 비망가액 이하 자산은 상각할 금액 자체가 없다(취득원가 − 비망가 ≤ 0). 미가드 시
         # 캡 경로가 전부 0을 내다가 종료해에 음수 상각으로 마감된다.

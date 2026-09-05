@@ -247,13 +247,15 @@ def collect_asset_info():
         )
 
         if disposal_type == "전체양도":
-            disposal_amount = acquisition_cost
+            # '전부'는 금액이 아니라 None으로 표현한다. 금액으로 적으면 자본적지출이 있을 때
+            # 통합 취득원가에 못 미쳐 부분양도로 해석되고, 양도 후에도 상각이 이어진다(감사 G4).
+            disposal_amount = None
             disposal_ratio = 100.0
+            total_basis = acquisition_cost + (increase_amount or 0)
             if has_increase:
-                print(f"\n   [완료] 전체양도: {disposal_amount:,}원 (원래 취득원가 100%)")
-                print(f"   [참고] 주의: 자본적지출이 있어도 처분금액은 원래 취득원가 기준입니다")
+                print(f"\n   [완료] 전체양도: {total_basis:,}원 (취득원가 + 자본적지출 100%)")
             else:
-                print(f"\n   [완료] 전체양도: {disposal_amount:,}원 (취득원가 100%)")
+                print(f"\n   [완료] 전체양도: {acquisition_cost:,}원 (취득원가 100%)")
         else:
             # 부분양도: 입력 방식 선택
             input_method = get_choice_input(
@@ -335,11 +337,12 @@ def display_summary(info: dict):
         print(f"처분유형:         {disposal_type}")
         if info.get('disposal_ratio'):
             print(f"처분비율:         {info['disposal_ratio']:.0f}%")
-        # 자본적지출이 있으면 "원래 취득원가 기준" 명시
-        if info.get('increase_date'):
-            print(f"처분금액:         {info['disposal_amount']:,}원 (원래 취득원가 기준)")
+        # 전체양도는 금액이 아니라 None — 제거되는 원가는 통합 취득원가 전액이다
+        if info['disposal_amount'] is None:
+            total_basis = info['acquisition_cost'] + (info.get('increase_amount') or 0)
+            print(f"처분금액:         {total_basis:,}원 (전부양도)")
         else:
-            print(f"처분금액:         {info['disposal_amount']:,}원 (취득원가 기준)")
+            print(f"처분금액:         {info['disposal_amount']:,}원 (원래 취득원가 기준)")
 
     print("=" * 80)
 

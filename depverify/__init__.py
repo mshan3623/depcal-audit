@@ -6,7 +6,7 @@
 - 계산 의미론은 sample_data/verify_ledger.py(더존 실측 99건 1원 일치)를 일반화한 것
 - 엔진 미지원·데이터 결손 자산은 조용히 넘기지 않고 사유 코드와 함께 검증불능 분류
 - 스코프: 법인세법 준용 상각(별표4), 더존 대장 레이아웃. K-IFRS 자체 추정 상각 제외
- 
+  (docs/IMPROVEMENT_PLAN_2026-07-11_VERIFY.md 참조)
 
 사용: python -m depverify <대장.xlsx> --fy 2024 [--out report.xlsx]
 """

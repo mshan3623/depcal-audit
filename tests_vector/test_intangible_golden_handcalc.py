@@ -247,6 +247,23 @@ def test_intangible_monthly_matches_handcalc():
     assert sum(m.amount for m in cal) == 99_999_000       # 총상각 = 원가 − 비망가
 
 
+def test_core_intangible_monthly_matches_handcalc():
+    """core 월별도 같은 손계산 재구성과 1원 대조 — 종료해 균등배분(G28) 고정.
+
+    별표4 6년율 × 6 = 0.996 이라 종료해 FY2031 에 4‰ 잔재가 남는다. core 는 2026-09-03 까지
+    이 잔재를 12월에 몰아넣어(1,383,333 ×11 + 1,782,337) vcore·손계산과 갈렸다. 2026-06-13
+    "정액·정률 동일 원칙"(종료해 균등배분)을 정액 단순 경로에도 적용해 해소했다.
+    """
+    fin = AssetFinancials(cost=100_000_000, life_in_years=6, start_date="2026-01-15",
+                          method=DepreciationMethod.INTANGIBLE)
+    info = AssetInfo(asset_id="A", asset_name="특허권", asset_category="무형")
+    r = calculate_depreciation_enhanced(fin, info, fiscal_year_end_month=12)
+    got = [(m.numeric_depreciation, m.accumulated_depreciation, m.book_value) for m in r.schedule]
+    assert got == _recon_months(GOLDEN_INTANG_SIMPLE)     # 72개월 완전 대조
+    assert got[60:][0][0] == 16_999_000 // 12             # 종료해 월 base = 종료해 총액//12
+    assert got[71][0] == 1_416_587                        # 결산월이 잔재 4원만 흡수(dump 아님)
+
+
 def test_intangible_monthly_fye3_matches_handcalc():
     """무형 6년 3월결산 — 부분월(첫 3개월)·종료해(9개월) 포함 72개월 완전 손계산 대조."""
     cal = monthly_schedule(100_000_000, 6, 2026, 1, 3, declining=False)

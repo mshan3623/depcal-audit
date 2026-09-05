@@ -108,11 +108,12 @@ def extract_fiscal_period(result: DepreciationResult, fiscal_year: int) -> Fisca
     )
 
 def _settle_terminal_evenly_schedule(schedule, fiscal_year_end_month):
-    """이벤트(capex·부분양도) 후 자연완료한 월별 스케줄의 종료해 잔재 정리를 그해 월수로
-    균등 재배분한다. vcore.monthly.settle_terminal_evenly와 동일한 relative-delta 방식:
+    """자연완료한 월별 스케줄의 종료해 잔재 정리를 그해 월수로 균등 재배분한다.
+    vcore.monthly.settle_terminal_evenly와 동일한 relative-delta 방식:
     금액만 균등화하고 acc/book은 '누적 재배분 차이(delta)'를 기존 값에 가산 → 종료해 안의
     이벤트 점프(부분양도 누계 하강·capex 장부 상승)를 보존하고 연말 acc/book·연간합계 불변.
-    정률법 5% 마지막달 dump 제거(정액은 잔재 0이라 no-op). 전부양도(절단)는 호출부에서 제외.
+    정률법 5% 마지막달 dump 제거. 정액법도 별표4율 × n ≠ 1인 연수(6·7·14년 등)에는 종료해
+    잔재가 남아 대상이다. 전부양도(절단)는 호출부에서 제외.
     """
     from .dep_common import get_fiscal_year
     if not schedule:
@@ -268,6 +269,16 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                     financials.salvage_value, financials.memorandum_value,
                     fiscal_year_end_month=fiscal_year_end_month
                 )
+            elif is_partial_disposal and has_prior:
+                # 정률 + 전기말 확정 + 부분양도. 정액에는 이 분기가 있으나(위 :214) 정률에는
+                # 없어서, 여기까지 오면 아래 else가 **전액양도로 처리**해 조용히 다른 표를
+                # 냈다(감사 G18-④). 구현하지 않기로 한 조합이므로 그럴듯한 오답 대신
+                # 거절한다 — 오라클이 틀린 값을 내면 거울 스윕이 vcore 결함을 가린다.
+                # ※ 거울 대조 범위에서 명시 제외한 조합이다(사유: 정률 분리자산 부분양도의
+                #    실측·손계산 앵커가 없어 무엇이 정답인지 확정되지 않음).
+                raise ValueError(
+                    "정률법 + 전기말확정(prior_accumulated) + 부분양도 조합은 지원하지 않습니다 "
+                    "— 정답 규약이 확립되지 않아 계산을 거절합니다")
             else:
                 schedule = _calculate_korean_declining_balance_enhanced(
                     financials.cost, financials.life_in_years, financials.start_date,
@@ -310,11 +321,14 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
         else:
             raise ValueError(f"지원하지 않는 감가상각 방법: {financials.method}")
 
-        # 원칙 통일: 이벤트(capex·부분양도) 후 '자연완료'한 스케줄도 종료해 균등 재배분한다
+        # 원칙 통일: '자연완료'한 스케줄은 종료해 잔재를 그해 월수로 균등 재배분한다
         # (자연완료 = 최종 장부가가 비망가 1,000원). 전부양도는 절단되어 최종 장부가>비망가이므로
-        # 제외. 정률 5% 마지막달 dump 제거, 연간합계·최종값 불변(정액은 no-op).
+        # 제외. 정률 5% 마지막달 dump 제거, 연간합계·최종값 불변.
         # 무형도 유형 정액 함수를 재사용하므로 정액·정률과 동일하게 종료해 균등 재배분한다.
-        if (has_increase or is_partial_disposal) and not has_prior \
+        # 2026-09-03: 단순 스케줄(이벤트 없음)에도 확대 — 2026-06-13 "정액·정률 동일 원칙"
+        # 결정이 정액에 미적용이라 별표4율 × n ≠ 1인 연수(6·7·14년 등)의 잔재를 12월에
+        # 몰아넣고 있었다(vcore는 균등). docs/audit_lattice_2026-09-03.md G28.
+        if not has_prior \
                 and financials.method in (DepreciationMethod.STRAIGHT_LINE,
                                           DepreciationMethod.DECLINING_BALANCE,
                                           DepreciationMethod.INTANGIBLE) \
@@ -365,11 +379,19 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
 
         return result
 
+    except ValueError:
+        # 도메인 가드 위반(취득 전 양도 등)은 삼키지 않는다. 빈 결과는 스케줄 0건 ·
+        # 장부가 0이라 **전액 양도된 자산과 구분되지 않고**, 오라클이 그럴듯한 값을
+        # 내면 거울 스윕이 vcore 결함을 가린다(감사 G18-③).
+        # 상위 진입점 `calculate_from_common_format`이 calculation_success=False로 변환한다.
+        logger.error(f"감가상각 계산 입력 오류(전파): {traceback.format_exc()}")
+        raise
+
     except Exception as e:
         logger.error(f"감가상각 계산 오류: {str(e)}")
         logger.error(traceback.format_exc())
 
-        # 오류 시 빈 결과 반환
+        # 예상 밖 오류만 빈 결과로 축약한다(도메인 오류는 위에서 전파됨)
         calculation_time = (datetime.now() - start_time).total_seconds() * 1000
         return DepreciationResult(
             asset_info=asset_info,

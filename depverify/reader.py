@@ -42,7 +42,7 @@ DOUZONE_COLUMNS = {
 
 # 무형자산 계정과목 — 항등식(classify_asset) 미가용 시 폴백 + 상시 교차검증용.
 # 사전은 그 자체로 안전장치가 아니다: 미등재 이름이 오면 반쯤 상각된 무형자산이
-# 조용히 유형으로 잡혀 취득원가가 순장부가로 축소된다(B사 미등재 무형계정 실측:
+# 조용히 유형으로 잡혀 취득원가가 순장부가로 축소된다(B사 '무형B' 실측:
 # 사전 제거 시 cost 100,000,000 → 51,666,667). 그래서 1순위는 사전이 아니라 항등식.
 INTANGIBLE_ACCOUNTS = {
     "영업권", "산업재산권", "특허권", "실용신안권", "의장권", "디자인권", "상표권",
@@ -51,6 +51,24 @@ INTANGIBLE_ACCOUNTS = {
 }
 
 SUPPORTED_METHODS = {"정액법", "정률법"}
+
+# 컬럼이 없을 때 **무엇이 불가능해지는지**. 기존에는 8개만 검사해서, 빠진 컬럼이
+# `row.get` → 공백으로 흘러 판정을 조용히 왜곡했다(감사 G23): `capex`가 없으면 전 행이
+# "필드결손"으로 사유가 오도되고, `category`·`disposal_date`가 없으면 **양도 자산이 전부
+# '보유'로 재계산돼 '차이'로 뜬다**. 없는 채로 굴리지 않고 이유를 대며 멈춘다.
+REQUIRED_COLUMNS = {
+    "beginning": "기초가액 — 취득원가 재구성 불가",
+    "prev_acc": "전기말상각누계액 — 취득원가 재구성·승계 대조 불가",
+    "capex": "신규취득및증가 — 당기 신규취득 식별 불가(전 행이 '필드결손'으로 오도됨)",
+    "life": "연수 — 별표4 상각률 결정 불가",
+    "method": "상감법 — 정액/정률 구분 및 자산행/구조행 판별 불가",
+    "acq_date": "취득일자 — 상각 개시월 결정 불가",
+    "exp_dep": "당기상각비범위액 — 대조 대상 없음",
+    "exp_acc": "당기말상각누계액 — 대조 대상 없음",
+    "exp_bk": "당기말장부가액 — 대조 대상 없음",
+    "category": "구분 — 양도/보유 판별 불가(양도 자산이 전부 '보유'로 재계산돼 거짓 '차이')",
+    "disposal_date": "양도/폐기일 — 양도월 결정 불가(양도 자산이 전부 '보유'로 재계산됨)",
+}
 
 # 구분(category) 라벨. 어느 쪽에도 없는 라벨(폐기·감액 등)을 조용히 '계속 보유'로
 # 재계산하면 처분 자산이 **차이**로 잘못 뜬다(B사 대장 폐기 2건 실측). 재계산
@@ -75,6 +93,24 @@ def _int_cell(v, label: str) -> int:
     if not f.is_integer():
         raise NonIntegerCell(f"{label} {v}")
     return int(f)
+
+
+class AmbiguousDateCell(ValueError):
+    """날짜 칸이 숫자다. pandas는 이를 epoch로 읽어 1970-01-01을 만든다."""
+
+
+def _date_cell(v, label: str):
+    """날짜 셀 해석 — 숫자 셀은 추정하지 않고 거부한다 (감사 G24).
+
+    `pd.to_datetime(20220115)`는 나노초 epoch로 해석돼 **1970-01-01**이 된다. 판정은
+    '차이'로 뜨니 조용한 통과는 아니지만, 보고서에 취득 1970-01이 찍혀 원인을 가린다.
+    8자리 YYYYMMDD인지 엑셀 일련번호인지는 셀만 보고 확정할 수 없으므로 — 이 도구는
+    조용한 추정을 하지 않는다 — 사유를 대며 멈추고 서식 수정을 요구한다.
+    """
+    if isinstance(v, bool) or (isinstance(v, (int, float)) and not pd.isna(v)):
+        raise AmbiguousDateCell(
+            f"{label}이 숫자 셀({v}) — 엑셀에서 날짜 서식으로 바꾼 뒤 다시 실행하세요")
+    return pd.to_datetime(v)
 
 
 def _opt_int_cell(v, label: str) -> Optional[int]:
@@ -137,7 +173,7 @@ def classify_asset(base: int, prev_acc: int, prev_book: Optional[int], capex: in
 
     dep_verify/parsers/douzone_to_standard.py 가 이 함수를 import 해서 쓴다. 사본을
     만들지 말 것: 판별 로직이 두 벌이던 동안 같은 B사 대장에서 두 도구가 무형 2건의
-    취득원가를 다르게 냈다(무형A 1,000 vs 37,000,000 / 무형B 51,666,667 vs 100,000,000).
+    취득원가를 다르게 냈다(개발비 1,000 vs 37,000,000 / 무형B 51,666,667 vs 100,000,000).
 
     당기신규(기초0 & 신규취득>0)는 취득원가가 표시방법과 무관하게 신규취득액이고,
     항등식은 전기말누계 0이라 축퇴한다. 이 해에는 계정과목명 사전이 유일한 신호지만
@@ -167,6 +203,76 @@ def _structural(row, cols) -> bool:
         return True
     label = re.sub(r"\s", "", str(name))
     return label in _TOTAL_LABELS or label.endswith(("소계", "합계", "총계"))
+
+
+_GRAND_TOTAL_LABELS = {"합계", "총계", "계"}
+
+
+def _is_grand_total(label: str) -> bool:
+    """대장 맨 아래 총계 행인가. 계정과목별 '소계'는 제외한다."""
+    return (label in _GRAND_TOTAL_LABELS
+            or (label.endswith(("합계", "총계")) and not label.endswith("소계")))
+
+
+def _ledger_amounts(row, cols) -> Optional[dict]:
+    """대장이 **표시한** (당기상각, 누계, 장부가). 판정 불능 행에도 통제합계 대사를 위해 읽는다."""
+    out = {}
+    for key, label in (("exp_dep", "당기상각비범위액"),
+                       ("exp_acc", "당기말상각누계액"),
+                       ("exp_bk", "당기말장부가액")):
+        try:
+            out[key] = _int_cell(row.get(cols[key]), label)
+        except (ValueError, TypeError):
+            return None
+    return out
+
+
+class ControlTotal:
+    """대장 합계행 대사 결과 — 완전성의 유일한 독립 신호 (감사 G11).
+
+    완전성은 방향이 반대다. 자산행을 아무리 뒤져도 '빠진 행'은 나오지 않는다. 리더가
+    자산행을 구조행으로 오판해 버려도(예: 상감법 공백 + 자산명이 '…계'로 끝나는 행)
+    지금까지는 검출 채널이 아예 없었다. 대장이 스스로 적어둔 합계와 맞춰보는 것이
+    그 채널이다 — 실측 4개 대장이 맞았던 것은 드롭이 없었다는 뜻이지 검출기가
+    있었다는 뜻이 아니다.
+
+    합계행을 못 찾으면 `found=False`. 이때 '일치'라고 말하지 않는다 — 대사 불가다.
+    """
+
+    def __init__(self, control: Optional[dict], sums: dict, rows_summed: int,
+                 rows_unsummed: int):
+        self.found = control is not None
+        self.label = control["label"] if control else ""
+        self.ledger = {k: control[k] for k in ("exp_dep", "exp_acc", "exp_bk")} if control else {}
+        self.summed = sums
+        self.rows_summed = rows_summed
+        self.rows_unsummed = rows_unsummed      # 금액을 못 읽어 합에서 빠진 데이터 행
+
+    @property
+    def deltas(self) -> dict:
+        """합계행 − 자산행 합. 양수면 대장 합계가 더 크다 = 행이 빠졌을 수 있다."""
+        return {k: self.ledger[k] - self.summed[k] for k in self.ledger} if self.found else {}
+
+    @property
+    def matched(self) -> bool:
+        return self.found and not any(self.deltas.values())
+
+    @property
+    def reliable(self) -> bool:
+        """대사 결과를 판정 근거로 쓸 수 있는가. 금액 못 읽은 행이 있으면 차이가 그 탓일 수 있다."""
+        return self.found and self.rows_unsummed == 0
+
+    def message(self) -> Optional[str]:
+        if not self.found:
+            return "대장 합계 대사 불가 — 합계행을 찾지 못했습니다(완전성 미검증)"
+        if self.matched:
+            return None
+        d = self.deltas
+        detail = (f"Δ당기상각 {d['exp_dep']:+,} · Δ누계 {d['exp_acc']:+,} · Δ장부가 {d['exp_bk']:+,}")
+        tail = ("" if self.reliable
+                else f" (금액을 읽지 못한 데이터 행 {self.rows_unsummed}건이 합에서 빠져 있음)")
+        return (f"대장 합계 대사 불일치 — 합계행 '{self.label}' vs 자산행 "
+                f"{self.rows_summed}건 합: {detail}{tail}")
 
 
 def _ident(row, cols) -> dict:
@@ -199,7 +305,9 @@ def _row_to_asset(row, cols, fy: int, fye: int) -> Tuple[Optional[dict], Optiona
         exp_acc = _int_cell(row[cols["exp_acc"]], "당기말상각누계액")
         exp_bk = _int_cell(row[cols["exp_bk"]], "당기말장부가액")
         prev_book = _opt_int_cell(row.get(cols["prev_book"]), "전기말장부가액")
-        dt = pd.to_datetime(row[cols["acq_date"]])
+        dt = _date_cell(row[cols["acq_date"]], "취득일자")
+    except AmbiguousDateCell as e:
+        return None, (ident, f"모호한날짜셀({e})")
     except NonIntegerCell as e:
         return None, (ident, f"비정수셀({e} — 원 단위 절사 금지)")
     except (KeyError, ValueError, TypeError) as e:
@@ -224,8 +332,10 @@ def _row_to_asset(row, cols, fy: int, fye: int) -> Tuple[Optional[dict], Optiona
     }
     if disposed:
         try:
-            dp = pd.to_datetime(row[cols["disposal_date"]])
+            dp = _date_cell(row[cols["disposal_date"]], "양도/폐기일")
             a["disp_y"], a["disp_m"] = int(dp.year), int(dp.month)
+        except AmbiguousDateCell as e:
+            return None, (ident, f"모호한날짜셀({e})")
         except (KeyError, ValueError, TypeError) as e:
             return None, (ident, f"필드결손(양도일: {e})")
     return a, None
@@ -233,25 +343,52 @@ def _row_to_asset(row, cols, fy: int, fye: int) -> Tuple[Optional[dict], Optiona
 
 def read_ledger(path: str, fy: int, fye: int = 12,
                 mapping: Optional[dict] = None,
-                sheet=0) -> Tuple[List[dict], List[Tuple[dict, str]], int]:
-    """대장 xlsx → (자산 dict 목록, 검증불능 (부분 dict, 사유) 목록, 구조행 스킵 수)."""
+                sheet=0) -> Tuple[List[dict], List[Tuple[dict, str]], int, "ControlTotal"]:
+    """대장 xlsx → (자산 목록, 검증불능 (부분 dict, 사유) 목록, 구조행 수, 통제합계 대사).
+
+    네 번째 값이 완전성 채널이다 — 자산행 합 vs 대장 합계행(감사 G11). 자세한 근거는
+    `ControlTotal` docstring.
+    """
+    if mapping:
+        # 오타 키는 조용히 무시되고 기본 컬럼명이 쓰인다 — 매핑을 줬는데 안 먹는 사고(G23)
+        unknown = sorted(set(mapping) - set(DOUZONE_COLUMNS))
+        if unknown:
+            raise ValueError(
+                f"--mapping에 알 수 없는 키: {unknown} — 사용 가능한 키: {sorted(DOUZONE_COLUMNS)}")
     cols = {**DOUZONE_COLUMNS, **(mapping or {})}
     df = pd.read_excel(path, sheet_name=sheet)
 
-    missing = [c for k, c in cols.items()
-               if k in ("beginning", "prev_acc", "life", "method", "acq_date",
-                        "exp_dep", "exp_acc", "exp_bk") and c not in df.columns]
+    missing = [f"{cols[k]}({why})" for k, why in REQUIRED_COLUMNS.items()
+               if cols[k] not in df.columns]
     if missing:
-        raise ValueError(f"대장에 필수 컬럼 없음: {missing} — 더존 표준 레이아웃이 아니면 --mapping 지정")
+        raise ValueError("대장에 필수 컬럼 없음 — 더존 표준 레이아웃이 아니면 --mapping 지정:\n  "
+                         + "\n  ".join(missing))
 
     assets, unreadable, structural = [], [], 0
+    sums = {"exp_dep": 0, "exp_acc": 0, "exp_bk": 0}
+    rows_summed = rows_unsummed = 0
+    control = None
     for _, row in df.iterrows():
         if _structural(row, cols):
             structural += 1                # 소계/합계 등 비자산 행
+            name = row.get(cols["asset_name"])
+            label = "" if _blank(name) else re.sub(r"\s", "", str(name))
+            amounts = _ledger_amounts(row, cols)
+            if amounts is not None and _is_grand_total(label):
+                control = {"label": label, **amounts}   # 뒤에 오는 총계가 이긴다(맨 아래가 총계)
             continue
+        # 판정 가능 여부와 무관하게 대장이 표시한 금액을 합산한다 — 검증불능 행을
+        # 빼고 더하면 합계가 안 맞는 게 당연해져 대사가 무의미해진다.
+        amounts = _ledger_amounts(row, cols)
+        if amounts is None:
+            rows_unsummed += 1
+        else:
+            rows_summed += 1
+            for k in sums:
+                sums[k] += amounts[k]
         a, bad = _row_to_asset(row, cols, fy, fye)
         if a is not None:
             assets.append(a)
         else:
             unreadable.append(bad)
-    return assets, unreadable, structural
+    return assets, unreadable, structural, ControlTotal(control, sums, rows_summed, rows_unsummed)

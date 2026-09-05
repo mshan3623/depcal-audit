@@ -156,6 +156,9 @@ def calculate():
             disposal_amount=int(data['disposal_amount']) if data.get('disposal_amount') else None,
             increase_date=data.get('increase_date'),
             increase_amount=int(data['increase_amount']) if data.get('increase_amount') else None,
+            # 결산월 — 없으면 12월 결산. 종전에는 폼에 필드 자체가 없어 3월 결산법인이
+            # 12월 결산 표를 받았고, 그 사실이 산출물 어디에도 적히지 않았다.
+            fiscal_year_end_month=int(data.get('fiscal_year_end_month') or 12),
             output_path=str(output_path)
         )
 

@@ -24,7 +24,7 @@ from vcore.projection import (
 )
 
 
-def apply_increase(base: List[Month], cost: int, k: int, inc_amount: int) -> List[Month]:
+def apply_increase(base: List[Month], k: int, inc_amount: int) -> List[Month]:
     """증가월(상대 인덱스 k)부터 base 벡터에 ratio 적용 (레퍼런스 Vector 비율 논리).
 
     가드가 여기 있는 이유: monthly_schedule.monthly_events가 이 함수를 직접 호출하므로
@@ -49,7 +49,7 @@ def months_with_increase(monthly_fn, cost, life_years, acq_year, acq_month,
     m_std = standard_acq_month(fiscal_end_month, acq_month)
     k = (inc_year * 12 + inc_month) - (acq_year * 12 + acq_month)   # 취득→증가 개월 간격 (불변량)
     base = monthly_fn(cost, life_years, m_std)
-    months = apply_increase(base, cost, k, inc_amount)
+    months = apply_increase(base, k, inc_amount)
     return monthly.settle_terminal_evenly(months)   # 자연완료: 종료해 균등 재배분
 
 

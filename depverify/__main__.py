@@ -46,9 +46,13 @@ def main(argv=None) -> int:
         with open(args.mapping, encoding="utf-8") as f:
             mapping = json.load(f)
 
+    # "1"은 시트 **이름**이 아니라 인덱스로 해석돼야 한다 — 문자열로 흘리면 pandas가
+    # 이름으로 찾다가 실패한다(감사 G19). 이름이 숫자인 시트는 없다고 본다.
+    sheet = int(args.sheet) if str(args.sheet).lstrip("-").isdigit() else args.sheet
+
     try:
-        assets, unreadable, structural = read_ledger(
-            args.xlsx, fy, fye=args.fye, mapping=mapping, sheet=args.sheet)
+        assets, unreadable, structural, control = read_ledger(
+            args.xlsx, fy, fye=args.fye, mapping=mapping, sheet=sheet)
     except (FileNotFoundError, ValueError) as e:
         print(f"오류: {e}", file=sys.stderr)
         return 2
@@ -57,7 +61,13 @@ def main(argv=None) -> int:
                         tolerance=args.tolerance)
     # 출처 정보는 판정 직후 수집한다 — 보고서와 stdout이 같은 값을 쓴다.
     meta = collect(args.xlsx, fy, args.fye, args.tolerance,
-                   sheet=args.sheet, mapping_path=args.mapping)
+                   sheet=sheet, mapping_path=args.mapping)
+
+    # 완전성 대사를 요약 맨 위에 올린다 — 자산행이 통째로 빠졌다면 아래의 '일치 N건'은
+    # 빠진 행을 세지 않은 숫자다. 판정 건수보다 먼저 읽혀야 한다(감사 G11).
+    control_message = control.message()
+    if control_message:
+        print(f"[완전성] {control_message}\n")
     print(summary_text(result, fy, meta))
 
     # 적법성 점검 — 재계산 대조가 원리적으로 못 잡는 축(대장이 법령에 어긋난 방법을
@@ -72,7 +82,11 @@ def main(argv=None) -> int:
     print(f"보고서: {out}")
 
     c = result.counts()
-    return 1 if (c["차이"] or c["검증불능"]) else 0
+    # 합계 대사 불일치는 '차이'와 같은 무게다 — 대장에 있는 행을 못 읽었다는 뜻이라
+    # 판정 결과 자체가 불완전하다. 합계행이 없어 대사 불가인 경우는 실패로 보지 않는다
+    # (미검증이지 불일치가 아니다 — 보고서 첫 줄에 그렇게 적힌다).
+    control_failed = control.found and not control.matched
+    return 1 if (c["차이"] or c["검증불능"] or control_failed) else 0
 
 
 if __name__ == "__main__":

@@ -7,9 +7,9 @@ dep_vector — 양도 슬림 코어 (전체양도, 정액·정률)
 전체양도 = base 월별 벡터를 양도월(인덱스 d)까지 절단한 것.
 취득·양도를 같은 δ로 함께 시프트하면 표준형으로 환원된다.
 
-레퍼런스(core/dep_tang_engine.py): disposal_date 지정 시 terminate=그 직전월,
-루프가 거기서 break — 즉 core의 disposal_date 월 = 양도월 + 1. core와 비교할
-때는 이 한 달 차이를 매핑할 것 (tests_vector/test_slim_vs_reference.py 참고).
+core와의 관계: **양도월 컨벤션이 통일돼 있다**(core 2026-06-13 변경). 둘 다 양도월까지
+상각하므로 대조 시 같은 양도월을 넣는다 — 매핑이 필요 없다
+(tests_vector/test_slim_vs_reference.py 참고).
 """
 
 from typing import List
@@ -67,6 +67,28 @@ def schedule_full_disposal_declining(cost: int, life_years: int, acq_year: int, 
                                    acq_month, disp_year, disp_month, fiscal_end_month)
 
 
+# ── 양도 판정·분배 단일 관문 ────────────────────────────────────────────
+def is_full_disposal(basis: int, disposal_amount) -> bool:
+    """전부양도(폐기 포함) 판정. basis = 이벤트 시점 통합 취득원가(원가 + 자본적지출).
+
+    None = 금액 미지정(전부), basis 이상 = 남는 지분 없음. 이 판정이 두 곳에 있으면
+    스케줄과 명세서가 갈린다(감사 G4) — 소비자는 전부 이 함수를 부른다.
+    """
+    return disposal_amount is None or disposal_amount >= basis
+
+
+def disposal_split(basis: int, acc: int, book: int, disposal_amount) -> tuple:
+    """양도로 제거되는 (취득원가, 감가상각누계액, 장부가액, 부분양도여부).
+
+    acc·book은 **양도월말**(그 달까지 상각한 뒤) 값이다 — 직전월이 아니다(감사 G5).
+    양도 누계는 4사5입, 장부가는 차감으로 등식(제거원가 = 제거누계 + 제거장부)을 보장한다.
+    """
+    if is_full_disposal(basis, disposal_amount):
+        return basis, acc, book, False
+    disp_acc = round_half_up(acc * disposal_amount / basis)
+    return disposal_amount, disp_acc, disposal_amount - disp_acc, True
+
+
 # ── 부분양도 = 역(逆) 자본적지출 + 누계 분배 ────────────────────────────
 def apply_partial_disposal(base: List[Month], cost: int, d: int, disposal_amount: int) -> List[Month]:
     """이벤트월(상대 인덱스 d)부터 base 벡터에 잔존비율 적용. 이벤트 시점에 누계·장부가 분배.
@@ -80,8 +102,8 @@ def apply_partial_disposal(base: List[Month], cost: int, d: int, disposal_amount
     remaining_ratio = 1.0 - disposal_amount / cost
     prev = base[d - 1]                                   # 양도월 (마지막 전체기준 상각월)
     # 양도월말 분배: 양도 누계 = 4사5입, 잔존 = 차감으로 무결성 보장
-    disposal_accumulated = round_half_up(prev.acc * disposal_amount / cost)
-    disposal_book = disposal_amount - disposal_accumulated
+    _, disposal_accumulated, disposal_book, _ = disposal_split(cost, prev.acc, prev.book,
+                                                               disposal_amount)
     # 잔존 누계·장부가로 진입 — 스케일 루프는 capex와 공용 골격 사용
     return monthly.apply_ratio_from(base, d, remaining_ratio,
                                     prev.acc - disposal_accumulated, prev.book - disposal_book)
@@ -119,12 +141,19 @@ def _schedule_partial_disposal(monthly_fn, cost, life_years, acq_year, acq_month
     if disposal_amount < cost and d >= life_years * 12 - 1:    # 자연종료(종료월 포함) 후 부분양도
         m_std = standard_acq_month(fiscal_end_month, acq_month)
         last = rows[-1]                                        # 자연종료 시점(완전상각)
-        disp_acc = round_half_up(last.accumulated * disposal_amount / cost)
-        disp_book = disposal_amount - disp_acc
+        _, disp_acc, disp_book, _ = disposal_split(cost, last.accumulated, last.book_value,
+                                                    disposal_amount)
         res_acc = last.accumulated - disp_acc                  # 잔류분 누계
         res_book = last.book_value - disp_book                 # 잔류분 비망가(안분)
         disp_fy = fy0 + ((m_std - 1) + d) // 12                # 양도 연도 라벨
-        rows.append(FiscalYearRow(disp_fy, 0, 0, res_acc, res_book))
+        if disp_fy == last.fiscal_year:
+            # 종료월 양도: 조정행의 FY가 종료해와 같다. 따로 붙이면 한 회계연도에 행이 둘이
+            # 되어 `fiscal_year`가 비유일해지고, `next(r for r in sch if r.fiscal_year == fy)`
+            # 류 소비자가 **첫 행만 보고 양도를 놓친다**(감사 G10). 같은 해의 사건이므로
+            # 종료해 행에 병합한다 — 그 해 상각액은 그대로고 기말 잔액만 잔류분이 된다.
+            last.accumulated, last.book_value = res_acc, res_book
+        else:
+            rows.append(FiscalYearRow(disp_fy, 0, 0, res_acc, res_book))
     return rows
 
 

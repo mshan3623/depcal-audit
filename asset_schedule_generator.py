@@ -21,14 +21,12 @@ Single Asset Depreciation Schedule Excel Generator
 월별 감가상각 스케줄을 생성하여 Excel 파일로 출력합니다.
 """
 
-import sys
 import os
-from datetime import datetime, date
-from dateutil.relativedelta import relativedelta
+import re
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
 
 
@@ -57,6 +55,7 @@ def _format_calc_method(raw_method: str) -> str:
         cleaned += ")"
     return cleaned.strip()
 
+from vcore import disposal
 from vcore.monthly_schedule import monthly_events
 
 
@@ -149,6 +148,27 @@ class AssetInput:
         if self.increase_amount is not None and self.increase_amount < 0:
             return False, "증가금액은 0 이상이어야 합니다"
 
+        # 처분 후 자본적지출은 성립하지 않는다 — 두 진입점(웹·CLI)이 같이 막히도록 여기 한 곳에 둔다
+        if self.disposal_date and self.increase_date:
+            try:
+                if (datetime.strptime(self.increase_date, "%Y-%m-%d")
+                        > datetime.strptime(self.disposal_date, "%Y-%m-%d")):
+                    return False, "증가일자(자본적지출)는 처분일자보다 이후일 수 없습니다"
+            except ValueError:
+                pass          # 형식 오류는 위의 개별 검증이 이미 잡는다
+
+        # 자본적지출이 있으면 처분금액의 기준은 통합 취득원가다. 취득원가 이상 ~ 통합원가 미만
+        # 구간은 '전부'인지 '일부'인지 입력만으로 갈리지 않아(감사 G4) 조용히 부분양도로
+        # 해석되면 양도 후에도 상각이 계속된다 — 뜻을 되묻는다.
+        if (self.disposal_date and self.disposal_amount is not None
+                and self.increase_amount and self.increase_amount > 0):
+            basis = self.acquisition_cost + self.increase_amount
+            if self.acquisition_cost <= self.disposal_amount < basis:
+                return False, (
+                    f"자본적지출이 있어 처분금액은 통합 취득원가({basis:,}원) 기준입니다. "
+                    f"전부양도면 처분금액을 비우거나 {basis:,}원 이상으로, "
+                    f"부분양도면 {self.acquisition_cost:,}원 미만으로 지정하세요")
+
         # 결산월 검증
         if not isinstance(self.fiscal_year_end_month, int) or not (1 <= self.fiscal_year_end_month <= 12):
             return False, "결산월(fiscal_year_end_month)은 1~12 사이 정수여야 합니다"
@@ -201,6 +221,7 @@ class MonthlyScheduleGenerator:
         return [{
             "year": m.year,
             "month": m.month,
+            "fiscal_year": m.fiscal_year,   # 결산월 반영 회계연도 — 연도별 집계는 이 값으로 묶는다
             "monthly_dep": m.amount,
             "accumulated_dep": m.acc,
             "book_value": m.book,
@@ -304,8 +325,10 @@ class ExcelGenerator:
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
 
+            # 자산명은 사용자 입력이다 — 경로 구분자·상위참조가 섞이면 output 밖에 쓴다
+            safe_name = re.sub(r'[^\w가-힣.-]+', '_', self.asset_input.asset_name).strip('._') or "자산"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"감가상각스케줄_{self.asset_input.asset_name}_{timestamp}.xlsx"
+            filename = f"감가상각스케줄_{safe_name[:60]}_{timestamp}.xlsx"
             output_path = os.path.join(output_dir, filename)
 
         wb.save(output_path)
@@ -313,7 +336,11 @@ class ExcelGenerator:
 
     def _calculate_disposal_info(self) -> Optional[Dict[str, Any]]:
         """
-        부분양도 시 제거된 취득원가와 누적상각액 계산
+        양도로 제거되는 취득원가·누적상각액·장부가액 (시트1 「처분 제거액」)
+
+        분배 산식은 vcore(`disposal.disposal_split`)가 유일한 출처다 — 여기서 다시 계산하면
+        같은 파일 안에서 시트1과 시트3(월별)이 어긋난다(감사 G5). 기준월도 vcore와 같은
+        **양도월(그 달까지 상각한 뒤)**이다. 직전월이 아니다.
 
         Returns:
             None (처분 없음) 또는 dict with keys:
@@ -323,73 +350,26 @@ class ExcelGenerator:
                 - disposal_book_value: 처분된 장부가액
                 - is_partial: 부분양도 여부
         """
-        if not self.asset_input.disposal_date or self.asset_input.disposal_amount is None:
+        ai = self.asset_input
+        if not ai.disposal_date:
             return None
 
-        # 처분 직전월 찾기
-        disposal_date = datetime.strptime(self.asset_input.disposal_date, "%Y-%m-%d")
-        disposal_year = disposal_date.year
-        disposal_month = disposal_date.month
-
-        # 직전월 계산
-        if disposal_month == 1:
-            prev_year = disposal_year - 1
-            prev_month = 12
-        else:
-            prev_year = disposal_year
-            prev_month = disposal_month - 1
-
-        # 직전월 데이터 찾기
-        prev_month_data = None
-        for record in self.schedule:
-            if record['year'] == prev_year and record['month'] == prev_month:
-                prev_month_data = record
-                break
-
-        if not prev_month_data:
+        disposal_date = datetime.strptime(ai.disposal_date, "%Y-%m-%d")
+        row = next((r for r in self.schedule
+                    if r['year'] == disposal_date.year and r['month'] == disposal_date.month), None)
+        if row is None:
             return None
 
-        # 자본적지출 고려: 처분 직전월의 실제 총 취득원가 계산
-        # (원래 취득원가 + 자본적지출) 또는 (장부가액 + 누적상각액)
-        actual_cost_at_disposal = prev_month_data['book_value'] + prev_month_data['accumulated_dep']
-
-        # 부분양도 여부 확인
-        # 자본적지출이 있으면 실제 총 취득원가 기준, 없으면 원래 취득원가 기준
-        disposal_ratio = self.asset_input.disposal_amount / self.asset_input.acquisition_cost
-
-        # 실제로는 통합 취득원가 대비 처분 비율로 재계산
-        if self.asset_input.increase_amount and self.asset_input.increase_amount > 0:
-            # 자본적지출이 있는 경우: 처분금액은 원래 취득원가 기준이지만,
-            # 실제 제거 비율은 통합 취득원가 대비로 계산
-            actual_disposal_ratio = self.asset_input.disposal_amount / actual_cost_at_disposal
-        else:
-            # 자본적지출이 없는 경우: 원래 취득원가 기준
-            actual_disposal_ratio = disposal_ratio
-
-        is_partial = disposal_ratio < 1.0
-
-        if is_partial:
-            # 부분양도: 실제 비율에 따라 계산
-            disposal_cost = self.asset_input.disposal_amount
-            disposal_accumulated = int(prev_month_data['accumulated_dep'] * actual_disposal_ratio)
-            disposal_book_value = int(prev_month_data['book_value'] * actual_disposal_ratio)
-
-            # 회계등식 검증 및 조정
-            calculated_sum = disposal_accumulated + disposal_book_value
-            if calculated_sum != disposal_cost:
-                # 반올림 오차는 장부가액에서 조정
-                disposal_book_value = disposal_cost - disposal_accumulated
-        else:
-            # 전체양도: 자본적지출 포함한 실제 총 취득원가
-            disposal_cost = actual_cost_at_disposal  # 수정: 통합 취득원가 사용
-            disposal_accumulated = prev_month_data['accumulated_dep']
-            disposal_book_value = prev_month_data['book_value']
+        # 이벤트 시점 통합 취득원가 = vcore monthly_events의 basis와 같은 정의
+        basis = ai.acquisition_cost + (ai.increase_amount or 0)
+        cost, accumulated, book_value, is_partial = disposal.disposal_split(
+            basis, row['accumulated_dep'], row['book_value'], ai.disposal_amount)
 
         return {
-            'disposal_date': self.asset_input.disposal_date,
-            'disposal_cost': disposal_cost,
-            'disposal_accumulated': disposal_accumulated,
-            'disposal_book_value': disposal_book_value,
+            'disposal_date': ai.disposal_date,
+            'disposal_cost': cost,
+            'disposal_accumulated': accumulated,
+            'disposal_book_value': book_value,
             'is_partial': is_partial
         }
 
@@ -517,10 +497,11 @@ class ExcelGenerator:
 
         row += 1
 
-        # 연도별 집계 계산
+        # 연도별 집계 계산 — 회계연도(결산월 반영) 기준. 달력연도로 묶으면 결산월 ≠ 12에서
+        # 월별 시트와 어긋난다(감사 G3). 라벨은 vcore 벡터가 실어준 값을 그대로 쓴다.
         yearly_data = {}
         for monthly in self.schedule:
-            year = monthly["year"]
+            year = monthly["fiscal_year"]
             if year not in yearly_data:
                 yearly_data[year] = {
                     "months": 0,

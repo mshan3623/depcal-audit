@@ -17,6 +17,14 @@ dep_vector — 법인세법 시행령 [별표 4] 감가상각자산의 상각률
 
 출처: legal/정률법정액법상각률.pdf (법제처 원문). 세법 개정 시 이 표와 core의 표를
 **둘 다** 갱신해야 한다 — 한쪽만 고치면 3자 대조가 막는다.
+
+**계산도 이 표의 정수로 한다 (2026-09-03).** float 상각률(`s/1000`)을 곱하면 0.284·0.142·
+0.071처럼 이진 표현이 참값보다 작은 연수에서 정확한 정수 결과가 x.999…로, 정확히 x.5가
+x.4999…로 나와 절사·4사5입이 1원을 내린다(실무 금액대에서 정률 9·41년 71%, 정액 7·14년
+71% 발화 — docs/audit_lattice_2026-09-03.md G1·G2). 그래서 연 상각액 산식은
+`straight_line_annual`·`declining_balance_amount` 두 정수 함수에만 있고, 정액·정률·월별·
+분리자산 경로가 전부 이 둘을 부른다. float 표(`STRAIGHT_LINE_RATES` 등)는 3자 대조와
+표시용으로만 남는다.
 """
 
 from typing import Dict, Tuple
@@ -94,8 +102,8 @@ DECLINING_BALANCE_RATES: Dict[int, float] = {n: d / 1000 for n, (_, d) in STATUT
 LIFE_YEARS_RANGE = (min(STATUTORY_PERMILLE), max(STATUTORY_PERMILLE))
 
 
-def _lookup(table: Dict[int, float], life_years: int, method: str) -> float:
-    """상각률 조회의 단일 관문 — 표 밖 내용연수는 명시 실패한다.
+def check_life_years(life_years: int) -> None:
+    """내용연수 범위 가드의 단일 관문 — 표 밖 내용연수는 명시 실패한다.
 
     표가 2~60년을 빠짐없이 수록하므로 "가장 가까운 작은 연수로 폴백" 같은 분기는
     이 구간에서 죽은 코드였고, 살아 있는 효과는 **범위 밖 입력의 조용한 클램프**뿐이었다
@@ -104,18 +112,50 @@ def _lookup(table: Dict[int, float], life_years: int, method: str) -> float:
     가드가 표 옆에 있는 이유: 정액·정률 두 모듈이 각자 같은 검사를 재구현하면 한쪽만
     고쳐질 수 있다. 범위의 진실원은 표이므로 검사도 표와 함께 둔다 (2026-08-22).
     """
-    if life_years not in table:
+    if life_years not in STATUTORY_PERMILLE:
         lo, hi = LIFE_YEARS_RANGE
         raise ValueError(
             f"내용연수는 별표4 상각률표 범위({lo}~{hi}년)여야 합니다 (life_years={life_years})")
+
+
+def _lookup(table: Dict[int, float], life_years: int, method: str) -> float:
+    check_life_years(life_years)
     return table[life_years]
 
 
 def straight_line_rate(life_years: int) -> float:
-    """법인세법 [별표 4] 정액법 상각률."""
+    """법인세법 [별표 4] 정액법 상각률 (float — 표시·대조용. 계산은 straight_line_annual)."""
     return _lookup(STRAIGHT_LINE_RATES, life_years, "정액법")
 
 
 def declining_rate(life_years: int) -> float:
-    """법인세법 [별표 4] 정률법 상각률."""
+    """법인세법 [별표 4] 정률법 상각률 (float — 표시·대조용. 계산은 declining_balance_amount)."""
     return _lookup(DECLINING_BALANCE_RATES, life_years, "정률법")
+
+
+# ── 정수 산술 관문 — 연 상각액 산식은 아래 두 함수에만 있다 ──────────────────
+
+def straight_line_annual(cost: int, life_years: int) -> int:
+    """정액법 연 상각액 = 4사5입(취득원가 × 별표4 정액률), 정수 산술.
+
+    `(cost × s + 500) // 1000` — s는 1000분율 정수. float `round_half_up(cost × s/1000)`은
+    정확히 x.5인 곱(10,000,500 × 14년 = 710,035.5)을 x.4999…로 만들어 710,035로 내렸다
+    (2026-09-03 감사 G2). 정액·월별(sl_monthly)·분리자산 세 경로가 전부 이 함수를 부른다.
+    """
+    check_life_years(life_years)
+    s, _ = STATUTORY_PERMILLE[life_years]
+    return (cost * s + 500) // 1000
+
+
+def declining_balance_amount(book: int, life_years: int, months: int) -> int:
+    """정률법 상각액 = 절사(기초장부가 × 별표4 정률 × 개월수 / 12), 정수 산술.
+
+    `book × d × months // 12000` — d는 1000분율 정수. float `int(book × d/1000 × months // 12)`는
+    정확한 정수 결과(10,000,000 × 9년 = 2,840,000)를 2,839,999.99…로 만들어 1원 내렸다
+    (2026-09-03 감사 G1 — 실무 금액대 표본에서 9·41년 71%, 7년 25% 발화). 절사 규칙(B사 더존
+    실측)은 그대로이고 float만 제거한다. 연도별·월별(db_monthly)·분리자산 세 경로가 전부
+    이 함수를 부른다.
+    """
+    check_life_years(life_years)
+    _, d = STATUTORY_PERMILLE[life_years]
+    return book * d * months // 12000

@@ -33,6 +33,10 @@ def source_revision() -> str:
     저장소에서 실행하면 짧은 해시를, 커밋되지 않은 변경이 있으면 '-dirty'를 붙인다.
     설치본(wheel)이나 git 부재 환경에서는 '미상(설치본)'을 반환한다 — 없는 정보를
     지어내지 않는다. dirty 표시는 "이 산출물은 커밋된 코드로 재현되지 않는다"는 경고다.
+
+    **추적 파일만 본다**(`--untracked-files=no`). 미추적 디렉터리는 계산에 쓰이는 코드가
+    아니므로, 그것 때문에 dirty가 붙으면 모든 보고서에 상시 경고가 찍혀 진짜 경고를
+    가린다(감사 G17 — 실제로 `inbox/`·`projects/` 때문에 발화 중이었다).
     """
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
@@ -40,7 +44,8 @@ def source_revision() -> str:
                              capture_output=True, text=True, timeout=5).stdout.strip()
         if not rev:
             return f"{_UNKNOWN}(설치본)"
-        dirty = subprocess.run(["git", "-C", repo, "status", "--porcelain"],
+        dirty = subprocess.run(["git", "-C", repo, "status", "--porcelain",
+                                "--untracked-files=no"],
                                capture_output=True, text=True, timeout=5).stdout.strip()
         return f"{rev}-dirty" if dirty else rev
     except (OSError, subprocess.SubprocessError):

@@ -1,6 +1,6 @@
 """자산별 판정 엔진 — verify_ledger.compare()의 비교 의미론을 판정 4분류로 일반화.
 
-입력 단위는 익명 자산 dict(A사 골든 픽스처와 동일 스키마 + 선택 필드):
+입력 단위는 익명 자산 dict(ledger_a 골든 픽스처와 동일 스키마 + 선택 필드):
   필수: fy, intang, cost, life, acq_y, acq_m, disposed, exp_dep, exp_acc, exp_bk, prev_acc
   선택: disp_y/disp_m(양도 시), method("정액법"|"정률법", 기본 정액법),
         asset_id/asset_name(보고서 식별용), fye(결산월, 기본 12)
@@ -78,9 +78,25 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
         if (not disposed and intang and exp_dep == 0 and exp_acc == 0
                 and exp_bk == 1000 and a["prev_acc"] == cost - 1000):
             return Verdict("일치")
+        if disposed:
+            # 상각완료(또는 전기) 후 양도. 아래 식 `d_bk = cost - exp_bk`는 "장부가액이
+            # 취득원가여야 일치"라는 뜻이라, 자산이 제거돼 장부 0인 대장은 **무엇을 적든
+            # 항상 '차이'**가 된다(감사 G7: Δ장부 +취득원가). 더존이 이 상황을 어떻게
+            # 표시하는지에 대한 실측 앵커가 0건이므로 비교식을 세울 수 없다 — 틀린 사유의
+            # 경보로 감사인 시간을 태우느니 모른다고 말한다.
+            return Verdict("검증불능",
+                           reason="비교식미확립(상각완료·전기 양도 — 대장 표시 규약 실측 앵커 0건)")
         # 스케줄에 FY 행 없음 (상각 종료 후 제거 등) — 시스템 값이 0이어야 일치
         d_dep, d_acc, d_bk = -exp_dep, -exp_acc, cost - exp_bk
     else:
+        if disposed and intang:
+            # 무형 양도. 아래 양도 환산식 `cost - exp_acc`는 누계열이 **실제 누계**인
+            # 간접법(유형) 전제다. 무형은 직접상각이라 누계열이 당기분만 표시하므로
+            # 2차연도 이후 무형 양도는 항상 '차이'가 된다(감사 G7 재현: 소프트웨어
+            # 12,000,000/5년/2022-01, 2024-06 양도 → Δ장부 −4,800,000. 같은 수치가
+            # 유형이면 '일치'). 무형 양도 실측 앵커는 0건이다.
+            return Verdict("검증불능",
+                           reason="비교식미확립(무형 양도 — 직접상각 누계열 × 양도 환산식, 실측 앵커 0건)")
         d_dep = cur.depreciation - exp_dep
         # 전액양도: 대장 장부가액은 0(자산 제거), vcore는 비망잔존 — 누계 기준 환산 대조
         d_bk = cur.book_value - ((cost - exp_acc) if disposed else exp_bk)
@@ -94,9 +110,16 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
         # 전기말누계 승계차: 대장의 전기말누계가 vcore 독립재계산과 다른 채로 넘어왔는데,
         # 당기가 양쪽 다 상각 종료년(정산행 = 취득가-비망-전기말누계)이라 그 승계차가
         # 당기상각에 1:1 전이되고 누계·장부가는 정산에서 흡수돼 일치하는 행.
-        # 실측 원인(TI FY2025 내부인테리어): 더존이 자산을 분할하며 원자산 누계를
+        # 실측 원인(A사 FY2025 자산②): 더존이 자산을 분할하며 원자산 누계를
         # 취득가 비례로 배분 — 총액은 보존되나 자녀별 절사 반복으로 자녀수-1원까지 벌어짐.
         # 상한 2는 실물(2분할)에서 관측된 범위이며 근거 있는 일반값이 아니다.
+        #
+        # ★ 재검증 조건(감사 G15 — 만료 없는 허용목록 금지): 이 상한은 **분할 자녀수−1**이
+        #   경험적 상한이라는 관찰에서 나왔고 표본은 1개사(TI) 1건뿐이다. 대장 표본이
+        #   3개사 이상이 되면 그 시점에 상한을 재실측한다 — 3분할 자산이 하나라도 나오면
+        #   2로는 부족하다(자녀수−1 = 2가 아니라 그 이상). 표본 확대 전까지 이 값을
+        #   올리지 말 것: 근거 없이 넓힌 허용목록은 차이를 통과시키는 구멍이 된다.
+        #   추적: docs/IMPROVEMENT_PLAN_2026-09-05.md 트랙 B2(실대장 표본 5~10개사).
         # d_dep == carry_gap 은 두 정산식에서 따라오는 항등식(원인은 전기, 당기 아님).
         prev_acc = a["prev_acc"]
         carry_gap = prev_acc - (cur.accumulated - cur.depreciation)   # 대장 − vcore

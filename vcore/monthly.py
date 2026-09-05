@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Callable, List
 
 from vcore.straight_line import annual_depreciation
-from vcore.rate_table import declining_rate
+from vcore.rate_table import check_life_years, declining_balance_amount
 from vcore.projection import (
     FiscalYearRow, MEMORANDUM, capped_yearly, standard_month_counts, first_fiscal_year,
 )
@@ -56,8 +56,10 @@ def settle_terminal_evenly(months: List[Month]) -> List[Month]:
 
     원칙: 종료해 연간상각액(=벡터의 그해 월상각 총합, 불변)을 먼저 확정 → 월할 균등 + 마지막
     달 보정. 정률법 5% 잔재의 '마지막 달 dump'를 제거하고 연간상각액의 일부로 균등 안분한다
-    (법인세법 시행령 제26조⑥ '상각범위액에 가산'의 월 단위 적용). 정액법은 잔재가 없어 항상
-    무변(no-op). basis-free: 종료해 총액·직전 장부가를 벡터에서 도출하므로 취득가 변동(capex
+    (법인세법 시행령 제26조⑥ '상각범위액에 가산'의 월 단위 적용). 정액법도 별표4율 × n ≠ 1인
+    연수(6년 0.166×6=0.996, 7년 0.142×7=0.994, 14년 등)에는 종료해 잔재가 남으므로 같은
+    원칙으로 균등 배분한다 — 무변(no-op)인 것은 잔재가 0인 연수뿐이다. basis-free: 종료해
+    총액·직전 장부가를 벡터에서 도출하므로 취득가 변동(capex
     증가·부분양도 감소) 잔여표에도 안전. 단 절단 경로(전체양도, 미완료 구간)에는 적용하지 않는다.
     """
     if not months:
@@ -124,10 +126,10 @@ def sl_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
 
 
 def db_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
-    """정률법 표준형 월별."""
-    rate = declining_rate(life_years)
+    """정률법 표준형 월별. 연 산식은 rate_table.declining_balance_amount(정수 산술) 하나."""
+    check_life_years(life_years)                      # 범위 가드 = rate_table 단일 관문(상단 발화)
     return standard_monthly(cost, life_years, acq_month,
-                            lambda book, miy: int(book * rate * miy // 12))
+                            lambda book, miy: declining_balance_amount(book, life_years, miy))
 
 
 def group(months: List[Month], fy0: int) -> List[FiscalYearRow]:

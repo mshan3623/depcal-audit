@@ -6,16 +6,17 @@ dep_vector — 정액법 슬림 코어
 
 정확성 규칙(레퍼런스 core/dep_tang_engine.py와 회계연도 단위 1원 일치):
   - 연 상각액 = 4사5입(취득원가 × 상각률테이블[내용연수])   (법인세법 [별표 4])
+    — 정수 산술 `rate_table.straight_line_annual` (float 곱셈 금지, 2026-09-03)
   - 회계연도 상각 = (연상각액 × 그해개월수) // 12, 비망가 한도 캡
   - 내용연수 종료해는 (직전 장부가 - 비망가)로 강제 → 최종 장부가 = 비망가
 """
 
 from typing import List
 
-from vcore.rate_table import straight_line_rate
+from vcore.rate_table import straight_line_annual
 from vcore.projection import (
     FiscalYearRow, MEMORANDUM, capped_yearly, standard_month_counts,
-    standard_acq_month, project, round_half_up, validate_asset_inputs,
+    standard_acq_month, project, validate_asset_inputs,
 )
 
 
@@ -23,9 +24,9 @@ def annual_depreciation(cost: int, life_years: int) -> int:
     """법인세법 [별표 4] 정액법 연 상각액 = 4사5입(취득원가 × 상각률).
 
     공개 API다 — monthly·separate_asset이 방법 주입을 위해 소비한다(밑줄 이름을
-    모듈 밖에서 부르던 캡슐화 누수 해소, 2026-08-22). 범위 가드는 rate_table 단일 관문.
+    모듈 밖에서 부르던 캡슐화 누수 해소, 2026-08-22). 산식·범위 가드는 rate_table 단일 관문.
     """
-    return round_half_up(cost * straight_line_rate(life_years))
+    return straight_line_annual(cost, life_years)
 
 
 def standard_vector(cost: int, life_years: int, acq_month: int) -> List[FiscalYearRow]:

@@ -259,6 +259,20 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="fiscal_year_end_month">결산월 (Fiscal Year End)</label>
+                    <select id="fiscal_year_end_month" name="fiscal_year_end_month" required>
+                        <option value="1">1월</option><option value="2">2월</option>
+                        <option value="3">3월</option><option value="4">4월</option>
+                        <option value="5">5월</option><option value="6">6월</option>
+                        <option value="7">7월</option><option value="8">8월</option>
+                        <option value="9">9월</option><option value="10">10월</option>
+                        <option value="11">11월</option>
+                        <option value="12" selected>12월</option>
+                    </select>
+                    <p class="info-text">회사의 사업연도 종료월. 12월 외 결산법인은 연도별 집계가 달라집니다</p>
+                </div>
+
+                <div class="form-group">
                     <label for="acquisition_cost">취득원가 (Acquisition Cost)</label>
                     <input type="text" id="acquisition_cost" name="acquisition_cost" required
                            placeholder="예: 50,000,000" class="amount-input">
@@ -339,6 +353,7 @@
                 depreciation_method: document.getElementById('depreciation_method').value,
                 acquisition_date: document.getElementById('acquisition_date').value,
                 useful_life: parseInt(document.getElementById('useful_life').value),
+                fiscal_year_end_month: parseInt(document.getElementById('fiscal_year_end_month').value),
                 acquisition_cost: parseInt(document.getElementById('acquisition_cost').value.replace(/,/g, '')),
                 increase_date: document.getElementById('increase_date').value || null,
                 increase_amount: document.getElementById('increase_amount').value ?
