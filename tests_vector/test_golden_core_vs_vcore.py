@@ -93,16 +93,17 @@ def test_golden_partial_disposal_after_natural_end(declining):
 def test_golden_capex_then_partial_disposal_straight():
     """capex+부분양도 동시 조합(정액) — core에서 한 번도 인증된 적 없는 경로.
 
-    vcore는 변환 합성(증가→양도 스케일)로 처리. 연말보정 반올림에서 월 ±1원
-    차이가 날 수 있으나 최종 누계·장부가는 완전 수렴해야 한다.
+    vcore는 변환 합성(증가→양도 스케일)로 처리. core는 이 조합을 2026-07-02부터 vcore에
+    **위임**하므로(`depreciation_engine` 정액 capex+부분양도 분기) 독립 대조가 아니라 위임
+    배선 확인이다 — 그래서 월 단위 완전 일치를 요구한다. 종전의 '월 ±1원' 허용은 위임 이전
+    기준이 재검증 조건 없이 남은 것이었다(감사 2026-09-23). 이 조합의 정답 보증은
+    `test_straight_line_golden_handcalc`(손계산)이 한다.
     """
     core = _core_monthly(DepreciationMethod.STRAIGHT_LINE, "2026-04-15", 12,
                          disposal="2028-07-01", disposal_amount=4_000_000,
                          increase="2027-06-10", inc_amount=3_000_000)
     got = _vcore_monthly(False, (2026, 4), 12, inc=(3_000_000, 2027, 6), disp=(4_000_000, 2028, 7))
-    assert len(got) == len(core)
-    assert got[-1][3:] == core[-1][3:]                       # 최종 누계·장부 완전 일치
-    assert max(abs(a[2] - b[2]) for a, b in zip(core, got)) <= 1   # 월상각 ±1원
+    assert got == core
 
 
 def test_capex_then_partial_disposal_declining_invariants():

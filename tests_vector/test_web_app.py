@@ -123,3 +123,29 @@ def test_download_returns_generated_file(client):
     res = client.get(f"/download/{filename}")
     assert res.status_code == 200
     assert res.data[:2] == b"PK"          # xlsx = zip 컨테이너
+
+
+# ── 정수 칸의 조용한 절사·치환 금지 (감사 2026-09-23) ─────────────────────────
+# 종전: int(12000000.9) → 12,000,000, int(5.9) → 5, 결산월 0 → `or 12`로 12. 원 단위 대조
+# 도구에서 입력을 몰래 바꾸면 산출물은 사용자가 넣지 않은 자산의 표가 된다.
+@pytest.mark.parametrize("field, value", [
+    ("acquisition_cost", 12_000_000.9),
+    ("useful_life", 5.9),
+    ("fiscal_year_end_month", 0),
+    ("fiscal_year_end_month", 13),
+    ("acquisition_cost", True),
+    ("disposal_amount", 1_000.5),
+])
+def test_calculate_rejects_non_integer_or_out_of_range(client, field, value):
+    payload = dict(VALID, **{field: value})
+    if field == "disposal_amount":
+        payload["disposal_date"] = "2027-06-30"
+    r = client.post("/calculate", json=payload)
+    assert r.status_code == 400, r.get_json()
+    assert r.get_json()["success"] is False
+
+
+def test_calculate_accepts_integral_values_and_digit_strings(client):
+    r = client.post("/calculate", json=dict(VALID, acquisition_cost="100000000",
+                                            useful_life=5.0, fiscal_year_end_month=3))
+    assert r.status_code == 200, r.get_json()

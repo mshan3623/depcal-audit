@@ -1,6 +1,6 @@
 """depverify V1 게이트 — 판정 엔진이 verify_ledger.compare()와 동일 판정 + 분류 정확성.
 
-게이트(개선계획 V1): TI 익명 골든 픽스처 99건을 새 파이프라인에 투입했을 때
+게이트(개선계획 V1): A사 익명 골든 픽스처 99건을 새 파이프라인에 투입했을 때
 기존 하네스와 판정·Δ가 완전히 같아야 한다. 추가로 검증불능 분류(사유 코드)와
 리더의 정직 분류(조용한 스킵 금지)를 고정한다.
 """
@@ -398,3 +398,19 @@ def test_reader_matches_verify_ledger_extraction(fy):
             "exp_dep", "exp_acc", "exp_bk", "prev_acc")
     for new_a, old_a in zip(assets, old):
         assert {k: new_a[k] for k in keys} == {k: old_a[k] for k in keys}
+
+
+@pytest.mark.parametrize("fy", [2022, 2024, 2025])
+def test_control_total_reconciles_on_real_ledger(fy):
+    """실대장에서 완전성 게이트가 실제로 발화한다 — 합계행을 찾고, 자산행 합과 맞는다.
+
+    감사 2026-09-23 A1: 합계행이 쉼표 문자열이라 이 게이트는 실대장에서 한 번도
+    '대사 불가' 밖으로 나온 적이 없었다. 합성 픽스처만으로는 이것을 못 잡는다.
+    """
+    from depverify.reader import read_ledger
+    path = verify_ledger.ledger_path(fy)
+    if path is None:
+        pytest.skip(f"{fy} 결산 대장 xlsx 없음 (로컬 전용 데이터)")
+    _, _, _, control = read_ledger(path, fy)
+    assert control.found and control.label == "계정과목총계"
+    assert control.reliable and control.matched

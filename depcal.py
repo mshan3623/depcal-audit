@@ -115,9 +115,9 @@ def get_date_input(prompt: str, required: bool = True) -> str:
             return None
 
         try:
-            # 날짜 형식 검증
-            datetime.strptime(value, "%Y-%m-%d")
-            return value
+            # 날짜 형식 검증 + 정규화. 원문('2023-3-5')을 돌려주면 아래의 문자열 비교에서
+            # '2023-3-5' > '2023-12-01'이 참이 된다(감사 2026-09-23) — 항상 0을 채워 돌려준다.
+            return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
         except ValueError:
             print("[주의] 올바른 날짜 형식이 아닙니다. YYYY-MM-DD 형식으로 입력해주세요. (예: 2023-03-15)")
 
@@ -154,6 +154,19 @@ def get_yes_no_input(prompt: str) -> bool:
             return False
         else:
             print("[주의] y(예) 또는 n(아니오)를 입력해주세요.")
+
+
+def partial_disposal_amount_from_ratio(acquisition_cost: int, ratio: float) -> int:
+    """처분비율(%) → 부분양도 금액(원, 절사). 0원이 되면 거부한다.
+
+    0원은 생성기에서 '금액 미지정 = 전부양도'로 읽힌다. 소액 원가에 작은 비율(5,000원 × 0.01%)을
+    넣으면 요약에는 '부분양도'가 찍힌 채 전부양도 표가 나왔다(감사 2026-09-23 M4).
+    """
+    amount = int(acquisition_cost * ratio / 100)
+    if amount < 1:
+        raise ValueError(f"처분비율 {ratio:g}%는 취득원가 {acquisition_cost:,}원에서 0원입니다 "
+                         f"— 금액(원)으로 입력하세요")
+    return amount
 
 
 def collect_asset_info():
@@ -270,7 +283,7 @@ def collect_asset_info():
                 if has_increase:
                     print("[참고] 주의: 자본적지출이 있어도 비율은 원래 취득원가 기준입니다")
                 disposal_ratio = get_float_input("12. 처분비율 (%): ", min_value=0.01, max_value=99.99)
-                disposal_amount = int(acquisition_cost * disposal_ratio / 100)
+                disposal_amount = partial_disposal_amount_from_ratio(acquisition_cost, disposal_ratio)
                 print(f"\n   [완료] 부분양도 {disposal_ratio:g}%: {disposal_amount:,}원 (자동계산)")
             else:
                 # 방식 2: 금액 입력
@@ -398,7 +411,7 @@ def main():
 
     except KeyboardInterrupt:
         print("\n\n[주의] 사용자가 작업을 중단했습니다.")
-        sys.exit(0)
+        sys.exit(130)                    # 중단은 성공(0)이 아니다 — SIGINT 관례
 
     except Exception as e:
         print("\n" + "=" * 80)

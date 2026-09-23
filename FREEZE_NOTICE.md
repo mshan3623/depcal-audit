@@ -2,8 +2,8 @@
 
 ## Status: 🔒 Oracle-Only 봉인 (과도기 — 박제 전 단계)
 
-**Effective Date**: 2024-11-27
-**Current Version**: 3.3.0(dep_vector) (v2.2.0 + 원단위 round_half_up 수정, 2026-07-02)
+**Effective Date**: 2024-11-27 (v2.0.0 Production Release — 동결 발효일)
+**Current Version**: `vcore/__init__.py`의 `__version__` — 손으로 적지 않는다(단일 진실원). Code Freeze 예외 이력은 아래 Version History 참조.
 **Status**: Oracle-Only 봉인 — vcore 회귀 대조 축 전용, 실행 경로 완전 배제
 
 ---
@@ -49,12 +49,64 @@ vcore가 core의 모든 기능을 병렬·독립적으로 오류 없이 재현�
 위 사유 2번(심각한 회계 오류)에 해당하는 변경 사항. `dep_tang_engine.py`·`dep_intang_engine.py`·
 `depreciation_engine.py`의 원단위 `round()` 11곳이 Python 내장 banker's rounding(x.5→짝수)을
 그대로 쓰고 있었음을 발견 — 상용/세법 4사5입 관행과 정확히 x.500인 금액에서 1원 갈릴 수 있는
-미검증 잠복 결함이었다(TI 실측 99건엔 x.500 자산이 없어 그동안 미발견). `dep_common.round_half_up`
+미검증 잠복 결함이었다(A사 실측 99건엔 x.500 자산이 없어 그동안 미발견). `dep_common.round_half_up`
 로 전부 교체. 패치 전후 core 자체 회귀(`tests/` 216개) 전부 무변화로 안전성 확인 후 적용 —
 상세는 `CHANGELOG.md` [3.3.0] 참조.
 
 **주의**: 이 수정이 바로 위 "Oracle-Only 봉인 선언"이 명시한 원칙(core 자체의 확실한
 결함이 발견되면 봉인보다 정확성 수정 우선)의 첫 실례다.
+
+---
+
+## v3.4.0(dep_vector) Code Freeze 예외 적용 (2026-07-25)
+
+같은 사유 2번에 해당하는 두 번째 실례. `dep_tang_engine.py` 정액·정률 2곳의 비망가 캡
+조건(`if remaining > 0 and yearly > remaining`)이 **이미 비망가에 도달한 자산에서 캡을 통째로
+건너뛰어** 계속 상각했고, 그 초과분이 종료해에 음수 상각으로 되돌아왔다(취득원가 약 4만원
+이하 대역에서만 발화 — 실무 금액대는 전건 정상이라 손계산 골든·더존 실측 어디에도
+안 걸렸다). vcore를 고치면서 oracle을 결함째 두면 core↔vcore 거울 스윕의 의미가 깨지므로
+동반 수정. core 자체 회귀 무변화 확인 후 적용 — 상세는 `CHANGELOG.md` [3.4.0] 참조.
+
+---
+
+## v3.7.0(dep_vector) Code Freeze 예외 적용 (2026-09-23)
+
+같은 사유 2번의 네 번째 실례이자 v3.6.0의 연장이다(감사 2026-09-23 A2, INC-13). v3.6.0은 **상각률**
+곱셈만 정수 관문으로 옮겼고, **비율**(부분양도 잔존비율 `1.0 − D/cost`, 자본적지출 증가비율
+`(B+증가액)/B`) 곱셈은 float로 남아 있었다. 55% 양도면 2,000,000 × 0.45 = 900,000이 899,999가 되는 식으로
+정확한 정수 결과가 1원 내려갔다 — **5년 자산에서도** 발화(퍼센트 양도 표본의 약 13%). vcore가 같은
+산식이라 거울이 눈이 멀어 있었고, 골든의 양도 비율은 우연히 float가 정확한 값이었다.
+`dep_tang_engine.py`·`dep_intang_engine.py`·`depreciation_engine.py`의 금액×비율 사이트를 전부
+`x × 분자 // 분모`(절사)와 `(2·x·분자 + 분모) // (2·분모)`(4사5입) 정수 산술로 교체 — 비율 의미
+(잔존·증가·절사/4사5입 구분)는 그대로다. vcore와 코드 공유 없이 각자 고쳤고(독립 증인 유지), 수정 후
+core↔vcore 거울 1원 일치 복귀를 확인했다. 상세는 `CHANGELOG.md` [3.7.0].
+
+같은 날 두 번째 수정(감사 A3, INC-14, `depreciation_engine.py`): 종료해 균등 재배분
+(`_settle_terminal_evenly_schedule`)이 종료해 **전체**를 균등화해, 그해 안의 capex·부분양도 **이전**
+달까지 이벤트 이후 기준 금액으로 바꿔 썼다(capex 종료해 7월 → 월 장부가 음수, 부분양도 → 엑셀
+처분 누계 ≠ 누계 하락 180,090원). vcore도 같은 동작이라 연도별·월별 거울 모두 침묵했다 — 월별 거울에
+종료해 이벤트 표본이 없었다. `segment_start`(마지막 이벤트 후 첫 달)를 받아 그 이후 구간만
+균등화하도록 고쳤다(인과성: 미래의 사건은 지나간 달을 바꾸지 않는다). 연간 합계 불변.
+
+## v3.6.0(dep_vector) Code Freeze 예외 적용 (2026-09-03)
+
+같은 사유 2번의 세 번째 실례. `dep_tang_engine.py` 정액 4곳·정률 2곳의 연 상각액 산식이
+`round_half_up(cost × rate)`·`int(book × rate × months // 12)` — 즉 float 상각률 곱셈이었다.
+0.284·0.142·0.071처럼 이진 표현이 참값보다 작은 별표4율에서 정확한 정수 결과(10,000,000 × 0.284
+= 2,840,000)가 2,839,999.99…로, 정확히 x.5(10,000,500 × 0.071 = 710,035.5)가 x.4999…로 나와 **1원이
+조용히 빠졌다**(실무 금액대 표본에서 정률 9·41년 71%, 정액 7·14년 71% 발화). 더존 실측·손계산
+골든이 전부 5·6년(float가 정확한 연수)이라 어느 채널도 못 잡았고, vcore가 같은 산식을 물려받아
+거울도 눈이 멀어 있었다. `dep_common.annual_straight_line`·`yearly_declining`(1000분율 정수 산술,
+core 자체 float 리터럴에서 `round(rate × 1000)`으로 복원 — vcore 표와 데이터 비공유)을 신설해
+6곳을 교체. core 자체 회귀 무변화 확인 후 적용 — 상세는 `CHANGELOG.md` [3.6.0],
+배경은 `docs/audit_lattice_2026-09-03.md` G1·G2.
+
+같은 날 두 번째 수정(감사 G28, `depreciation_engine.py`): 종료해 잔재 균등 재배분
+(`_settle_terminal_evenly_schedule`)이 이벤트(capex·부분양도) 경로에만 걸려 있어, 단순 스케줄에서는
+별표4율 × n ≠ 1인 연수(6·7·14년 등)의 정액 잔재를 결산월에 몰아넣고 있었다. 같은 core가 정률은
+이미 균등이라 **자기모순**이었고, 무형 6년 월단위 손계산 골든(외부 앵커)과도 갈렸다 — 2026-06-13
+"정액·정률 동일 원칙" 결정이 정액에 미적용된 잔여로 판단해 게이트에서 이벤트 조건을 제거했다.
+연총액·누계·최종 장부가는 불변, 월 배분만 바뀐다.
 
 ---
 
@@ -273,6 +325,8 @@ def calculate_with_custom_logic(...):
 
 ## Version History
 
+- **v3.6.0(dep_vector)** (2026-09-03): 연 상각액 float 산식 → 1000분율 정수 산술, core 동반 수정(정액 4곳·정률 2곳). Code Freeze 사유 2번 적용.
+- **v3.4.0(dep_vector)** (2026-07-25): 비망가 캡 결함 core 동반 수정(정액·정률 2곳). Code Freeze 사유 2번 적용.
 - **v3.3.0(dep_vector)** (2026-07-02): Oracle-Only 봉인 선언 + 원단위 round_half_up 수정. Code Freeze 사유 2번 적용.
 - **v2.2.0** (2026-05-22): 회계기간(fiscal year) 1급 시민화 — 비-12월 결산 지원. Code Freeze 사유 2번 적용.
 - **v2.1.0** (2026-05-22): 회계 정확성 maintenance (매각 시간 인과율 수정, 부분양도 분배 통일, 매트릭스 84개 영구화 등). Code Freeze 사유 2번 적용.
@@ -292,6 +346,6 @@ def calculate_with_custom_logic(...):
 
 ---
 
-**Effective Date**: 2024-11-27
-**Last Updated**: 2026-07-02 (v3.3.0(dep_vector) — Oracle-Only 봉인 선언)
+**Effective Date**: 2024-11-27 (v2.0.0 Production Release — 동결 발효일)
+**Last Updated**: 2026-09-03 (v3.6.0 예외 적용 — 정수 산술 동반 수정)
 **Status**: Active (Oracle-Only 봉인, 박제 전 과도기)

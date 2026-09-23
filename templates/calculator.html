@@ -352,15 +352,15 @@
                 asset_type: document.getElementById('asset_type').value,
                 depreciation_method: document.getElementById('depreciation_method').value,
                 acquisition_date: document.getElementById('acquisition_date').value,
-                useful_life: parseInt(document.getElementById('useful_life').value),
-                fiscal_year_end_month: parseInt(document.getElementById('fiscal_year_end_month').value),
-                acquisition_cost: parseInt(document.getElementById('acquisition_cost').value.replace(/,/g, '')),
+                useful_life: Number(document.getElementById('useful_life').value),
+                fiscal_year_end_month: Number(document.getElementById('fiscal_year_end_month').value),
+                acquisition_cost: Number(document.getElementById('acquisition_cost').value.replace(/,/g, '')),
                 increase_date: document.getElementById('increase_date').value || null,
                 increase_amount: document.getElementById('increase_amount').value ?
-                    parseInt(document.getElementById('increase_amount').value.replace(/,/g, '')) : null,
+                    Number(document.getElementById('increase_amount').value.replace(/,/g, '')) : null,
                 disposal_date: document.getElementById('disposal_date').value || null,
                 disposal_amount: document.getElementById('disposal_amount').value ?
-                    parseInt(document.getElementById('disposal_amount').value.replace(/,/g, '')) : null
+                    Number(document.getElementById('disposal_amount').value.replace(/,/g, '')) : null
             };
 
             try {

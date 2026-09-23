@@ -55,7 +55,6 @@ from .dep_common import (
     parse_date_safe,
     add_months_safe,
     to_int,
-    round_half_up,
     safe_int_conversion
 )
 
@@ -157,7 +156,7 @@ def _calculate_intangible_with_partial_disposal(cost: int, life_years: int, star
     # 핵심 원칙: 양도 직전월까지의 history는 그대로 유지하고,
     # 양도월부터만 잔존 자산 기준으로 계속 감가상각한다.
     # 양도 시점 분배 (회계 원칙: 양도 누계 = round, 잔존 = 차감으로 무결성 보장)
-    disposal_accumulated = round_half_up(prev_month_record.accumulated_depreciation * disposal_amount / cost)
+    disposal_accumulated = (2 * prev_month_record.accumulated_depreciation * disposal_amount + cost) // (2 * cost)
     disposal_book_value = disposal_amount - disposal_accumulated
 
     disposal_check = disposal_book_value + disposal_accumulated
@@ -249,13 +248,13 @@ def _calculate_intangible_with_partial_disposal(cost: int, life_years: int, star
                 m for m in vector_months
                 if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
             ]
-            year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * remaining_ratio)
+            year_target = sum(m.numeric_depreciation for m in year_vector_months) * (cost - disposal_amount) // cost
             monthly_amount = year_target - yearly_accumulated[current_fy]['accumulated']
             calculation_method = "무형자산직접상각법(부분양도-결산월보정)"
             logger.info(f"결산월 보정 ({vector_month.year}-{vector_month.month:02d} FY{current_fy}): 목표 {year_target:,}원, 보정 {monthly_amount:,}원")
         else:
             # 일반월: Vector × 잔존비율 (integer 변환)
-            monthly_amount = int(base_monthly_dep * remaining_ratio)
+            monthly_amount = base_monthly_dep * (cost - disposal_amount) // cost
             calculation_method = "무형자산직접상각법(부분양도)"
 
         # 값 업데이트

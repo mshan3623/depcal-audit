@@ -84,6 +84,32 @@ def monthly_partial_disposal(cost: int, life_years: int, acq_year: int, acq_mont
     return _to_calendar(months, acq_year, acq_month, fiscal_end_month)
 
 
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _validate_events(declining, inc, disp) -> None:
+    """이벤트 입력 가드 — cost만 보던 G21 가드를 이벤트까지 넓힌다(감사 2026-09-23).
+
+    종전엔 소수 양도액이 소수 장부가로, 13월이 다음 해 1월로, `declining="no"`가 정률로
+    조용히 흘렀다. 양도가 증가보다 먼저면 기준원가(원가+증가액)가 틀어지는데 이 조합은
+    엑셀 생성기만 막고 있었다 — 단일 진입점인 여기서 막는다(같은 달은 허용: 생성기와 동일).
+    """
+    if not isinstance(declining, bool):
+        raise ValueError(f"declining은 bool이어야 합니다 (declining={declining!r})")
+    for name, ev, amount_may_be_none in (("inc", inc, False), ("disp", disp, True)):
+        if ev is None:
+            continue
+        amount, year, month = ev
+        if not (amount is None and amount_may_be_none) and not _is_int(amount):
+            raise ValueError(f"{name} 금액은 정수여야 합니다 ({amount!r})")
+        if not (_is_int(year) and _is_int(month)) or not 1 <= month <= 12:
+            raise ValueError(f"{name} 시점은 정수 연·월(1~12)이어야 합니다 ({year!r}, {month!r})")
+    if inc is not None and disp is not None and (disp[1], disp[2]) < (inc[1], inc[2]):
+        raise ValueError(f"양도({disp[1]}-{disp[2]:02d})가 자본적지출 증가({inc[1]}-{inc[2]:02d})보다 "
+                         f"앞섭니다 — 부분양도 기준원가(원가+증가액)가 성립하지 않습니다")
+
+
 def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
                    fiscal_end_month: int = 12, declining: bool = False,
                    inc: tuple = None, disp: tuple = None) -> List[CalendarMonth]:
@@ -97,15 +123,18 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
     disposal.apply_partial_disposal)에서 발화한다.
     """
     validate_asset_inputs(cost, acq_month, fiscal_end_month)
+    _validate_events(declining, inc, disp)
     m_std = standard_acq_month(fiscal_end_month, acq_month)
     months = _monthly_fn(declining)(cost, life_years, m_std)
     truncated = False
     basis = cost
+    event_start = 0                                       # 마지막 이벤트 후 첫 달 (균등화 구간 시작)
     if inc is not None:
         inc_amount, inc_year, inc_month = inc
         k = (inc_year * 12 + inc_month) - (acq_year * 12 + acq_month)
         months = capex.apply_increase(months, k, inc_amount)
         basis = cost + inc_amount
+        event_start = k
     if disp is not None:
         disp_amount, disp_year, disp_month = disp
         d = disposal.months_to_disposal(acq_year, acq_month, disp_year, disp_month)
@@ -128,6 +157,7 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
                     f"(양도 {disp_year}-{disp_month:02d}, 상각 종료 {len(months)}개월째). "
                     f"연도별 API(schedule_partial_disposal)를 쓰면 조정행으로 표시됩니다")
             months = disposal.apply_partial_disposal(months, basis, d + 1, disp_amount)
-    if not truncated:                                     # 자연완료: 종료해 균등 재배분
-        months = monthly.settle_terminal_evenly(months)
+            event_start = max(event_start, d + 1)
+    if not truncated:                                     # 자연완료: 종료해 균등(마지막 이벤트 이후)
+        months = monthly.settle_terminal_evenly(months, event_start)
     return _to_calendar(months, acq_year, acq_month, fiscal_end_month)

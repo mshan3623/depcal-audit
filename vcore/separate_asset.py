@@ -41,6 +41,14 @@ def schedule_separate_asset(cost: int, life_years: int, acq_year: int, acq_month
         raise ValueError(f"전기말 누계는 음수일 수 없습니다 (prior_accumulated={prior_accumulated})")
     if target_year < acq_year:
         raise ValueError(f"당기연도({target_year})는 취득연도({acq_year}) 이전일 수 없습니다")
+    if target_year == acq_year and start_month < acq_month:
+        # 이 경로는 전기말 누계가 있는 이월자산용이다. 취득연도 당기를 넣으면 취득월 전 달까지
+        # 상각했다(7월 취득 → 12개월, 2배 — 감사 2026-09-23 M1). 당기 취득은 일반 경로
+        # (straight_line.schedule 등)가 취득월부터 계산한다. 합병 승계처럼 취득월 이후에
+        # 개시하는 경우(start_month ≥ acq_month)는 그대로 허용한다.
+        raise ValueError(
+            f"분리자산 경로는 이월자산용입니다 — 취득연도({acq_year}) 당기 계산에서 개시월"
+            f"({start_month})이 취득월({acq_month})보다 앞섭니다. 당기 취득은 일반 경로를 쓰세요")
 
     # 내용연수 종료 회계연도(취득 후 life년) 산정
     dep_complete_year = acq_year + life_years

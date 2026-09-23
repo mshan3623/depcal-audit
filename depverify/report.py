@@ -8,6 +8,9 @@ from typing import Optional
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
+from asset_schedule_generator import neutralize_formulas
+from depverify.compliance import unchecked_note
+from depverify.reader import ControlTotal
 from depverify.verdict import RunResult
 
 #: 산출물에 반드시 동행해야 하는 용도·한계 고지.
@@ -47,7 +50,8 @@ def _rows(result: RunResult):
         ]
 
 
-def summary_text(result: RunResult, fy: int, meta: Optional[dict] = None) -> str:
+def summary_text(result: RunResult, fy: int, meta: Optional[dict] = None,
+                 control: Optional[ControlTotal] = None) -> str:
     c = result.counts()
     total = sum(c.values())
     basis = (f"±{result.tolerance:,}원 (감사인 설정)" if result.tolerance
@@ -66,7 +70,13 @@ def summary_text(result: RunResult, fy: int, meta: Optional[dict] = None) -> str
                     f"Δ당기상각 {v.d_dep:+,} / Δ누계 {v.d_acc:+,} / Δ장부 {v.d_bk:+,}"
                 lines.append(f"    [{v.status}] {who}: {detail}")
     elif c["허용차"] == 0:
-        lines.append("  예외 없음 — 전 자산 시스템 산출값과 일치")
+        if control is not None and not control.matched:
+            # '전 자산'은 대장 전체를 읽었을 때만 말할 수 있다 — 대사가 성립하지 않으면
+            # 읽은 행만의 결과다(감사 2026-09-23 M2: [완전성] 불일치 바로 아래 찍혔다).
+            lines.append("  읽은 자산은 예외 없음 — 단 대장 합계 대사가 성립하지 않아 "
+                         "누락 여부는 미확인([완전성] 참조)")
+        else:
+            lines.append("  예외 없음 — 전 자산 시스템 산출값과 일치")
     # 허용차는 일치로 뭉개지 않고 항상 별도 열거한다 (V1-3)
     if c["허용차"]:
         lines.append("  허용차 내 차이 — 일치가 아님, 개별 확인 필요:")
@@ -87,7 +97,8 @@ def summary_text(result: RunResult, fy: int, meta: Optional[dict] = None) -> str
 
 
 def write_xlsx(result: RunResult, fy: int, out_path: str,
-               meta: Optional[dict] = None, findings: Optional[list] = None) -> str:
+               meta: Optional[dict] = None, findings: Optional[list] = None,
+               control: Optional[ControlTotal] = None, unchecked: int = 0) -> str:
     wb = Workbook()
     ws = wb.active
     ws.title = "자산별"
@@ -100,6 +111,17 @@ def write_xlsx(result: RunResult, fy: int, out_path: str,
     c = result.counts()
     ws2 = wb.create_sheet("요약")
     ws2.append(["FY", fy])
+    # 완전성을 판정 건수보다 먼저 싣는다 — stdout과 같은 순서. 이 시트가 감사조서에 붙는데,
+    # 종전엔 통제합계 불일치(exit 1)인 실행도 여기서는 깨끗해 보였다(감사 2026-09-23 M2).
+    if control is not None:
+        ws2.append(["완전성(합계 대사)", control.status, control.line()])
+        if control.found:
+            ws2.append(["", "당기상각", "누계", "장부가"])
+            keys = ("exp_dep", "exp_acc", "exp_bk")
+            ws2.append([f"대장 합계행 '{control.label}'", *(control.ledger[k] for k in keys)])
+            ws2.append([f"자산행 합 ({control.rows_summed}건)", *(control.summed[k] for k in keys)])
+            ws2.append(["Δ (합계행 − 자산행 합)", *(control.deltas[k] for k in keys)])
+        ws2.append([])
     for k in ("일치", "허용차", "차이", "검증불능"):
         ws2.append([k, c[k]])
     ws2.append(["구조행 스킵", result.structural_skips])
@@ -127,7 +149,8 @@ def write_xlsx(result: RunResult, fy: int, out_path: str,
         for f in findings:
             ws4.append([f.issue, f.asset_name, f.account, f.detail, f.basis])
     else:
-        ws4.append(["업무용승용차 상각 요건", "-", "-", "요건 불일치 후보 없음", "법인세법 시행령 §50조의2 ③"])
+        ws4.append(["업무용승용차 상각 요건", "-", "-", "요건 불일치 후보 없음" + unchecked_note(unchecked),
+                    "법인세법 시행령 §50조의2 ③"])
     ws4.append([])
     ws4.append(["※ 이 시트는 판정이 아니라 검토 지원입니다. 업무용승용차 해당 여부는 "
                 "「개별소비세법」 §1②3호 승용자동차 여부(화물·승합 9인승↑·경차 제외)와 "
@@ -143,5 +166,6 @@ def write_xlsx(result: RunResult, fy: int, out_path: str,
         ws3.append([line])
     ws3.column_dimensions["A"].width = 110
 
+    neutralize_formulas(wb)                  # 대장 자산명이 '='로 시작해도 수식이 되지 않게
     wb.save(out_path)
     return out_path

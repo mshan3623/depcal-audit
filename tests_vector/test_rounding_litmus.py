@@ -1,6 +1,6 @@
 """원단위 round() 3곳 — x.500 리트머스 (banker's rounding 함정 반전 확인).
 
-배경(docs/IMPROVEMENT_PLAN_2026-07-02.md P2): TI 더존 실측은 반올림(round) 확정이지만,
+배경(docs/IMPROVEMENT_PLAN_2026-07-02.md P2): A사 더존 실측은 반올림(round) 확정이지만,
 Python `round()`는 banker's rounding(x.5 → 짝수)이라 상용 4사5입과 정확히 x.500인
 자산에서 1원 갈릴 수 있다. A사 데이터엔 그런 자산이 없어 미검증 잠복 리스크였다.
 

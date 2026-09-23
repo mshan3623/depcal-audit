@@ -238,7 +238,7 @@ rows = straight_line.schedule(cost=10_000_000, life_years=5, acq_year=2023, acq_
 
 ### 테스트
 ```bash
-pytest -q                                   # 전체 (936 통과)
+pytest -q                                   # 전체 (3.7.0 기준 1,640 통과)
 python tests/test_depreciation_scenarios.py # 레거시 엔진 12/12 (oracle 스냅샷)
 # tests_vector/: vcore vs 레퍼런스 1원 일치 회귀 가드 + 손계산 절대 골든값
 ```
@@ -264,10 +264,10 @@ python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx
 > (2026-08-11 단일화). `dep_verify/parsers`가 이 함수를 import해서 쓰므로 **사본을 만들지 마세요.**
 > 판별이 두 벌이던 동안 같은 B사 대장에서 무형 2건의 취득원가가 갈렸습니다
 > (개발비 1,000 vs 37,000,000 · 무형B 51,666,667 vs 100,000,000). 단일화 후 4개 대장
-> 140행에서 두 도구 불일치 0. 상세: [docs/FITNESS_AUDIT_2026-08-11.md](docs/FITNESS_AUDIT_2026-08-11.md) §9·§10
+> 140행에서 두 도구 불일치 0. 상세: docs/FITNESS_AUDIT_2026-08-11.md (비공개 문서) §9·§10
 
 - **A사 실대장 검증**: 2022·2024·2025 = **99/99 (100%)** — 폐기·양도·분할양도 포함
-- 더존 컬럼 의미·계산 규칙은 **[`../dep_verify/docs/DOUZONE_COLUMNS.md`](../dep_verify/docs/DOUZONE_COLUMNS.md)** 참조
+- 더존 컬럼 의미·계산 규칙은 **`../dep_verify/docs/DOUZONE_COLUMNS.md` (비공개 문서)** 참조
   - 양도자산: 더존은 **양도월까지 월할**(공식 확인), 엔진 기본은 직전월까지(정론) — 컨벤션 선택 가능
   - 무형자산: 직접상각(기초가액=장부가액, 취득원가=기초가+전기말누계)
   - **유형/무형 판별은 계정과목명 사전이 아니라 대장 자체의 항등식이 1순위**입니다 —
@@ -311,8 +311,8 @@ python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx
 
 - [CHANGELOG.md](CHANGELOG.md) — 버전 히스토리
 - [FREEZE_NOTICE.md](FREEZE_NOTICE.md) — `core/` 동결 정책
-- [PRODUCTION_CERTIFICATION.md](PRODUCTION_CERTIFICATION.md) — 품질 인증
-- [../dep_verify/docs/DOUZONE_COLUMNS.md](../dep_verify/docs/DOUZONE_COLUMNS.md) — 더존 컬럼 정의·검증 규칙
+- PRODUCTION_CERTIFICATION.md (비공개 문서) — 품질 인증
+- ../dep_verify/docs/DOUZONE_COLUMNS.md (비공개 문서) — 더존 컬럼 정의·검증 규칙
 
 ## 📄 라이선스
 

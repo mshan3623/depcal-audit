@@ -107,20 +107,28 @@ def extract_fiscal_period(result: DepreciationResult, fiscal_year: int) -> Fisca
         months_in_period=months_in_period,
     )
 
-def _settle_terminal_evenly_schedule(schedule, fiscal_year_end_month):
+def _settle_terminal_evenly_schedule(schedule, fiscal_year_end_month, segment_start=None):
     """자연완료한 월별 스케줄의 종료해 잔재 정리를 그해 월수로 균등 재배분한다.
     vcore.monthly.settle_terminal_evenly와 동일한 relative-delta 방식:
     금액만 균등화하고 acc/book은 '누적 재배분 차이(delta)'를 기존 값에 가산 → 종료해 안의
     이벤트 점프(부분양도 누계 하강·capex 장부 상승)를 보존하고 연말 acc/book·연간합계 불변.
     정률법 5% 마지막달 dump 제거. 정액법도 별표4율 × n ≠ 1인 연수(6·7·14년 등)에는 종료해
     잔재가 남아 대상이다. 전부양도(절단)는 호출부에서 제외.
+
+    segment_start = 마지막 이벤트 후 첫 달 (연, 월) — capex 증가월, 부분양도 익월. 균등화는
+    종료해 중 이 달 이후에만 한다: 미래의 사건은 지나간 달을 바꾸지 않는다. 종전에는 종료해 전체를
+    균등화해 이벤트 이전 달에 이벤트 이후 기준 금액이 들어갔다(capex → 월 장부가 음수, 부분양도 →
+    엑셀 처분 누계 ≠ 누계 하락). 감사 2026-09-23 A3, INC-14.
     """
     from .dep_common import get_fiscal_year
     if not schedule:
         return schedule
     last_fy = get_fiscal_year(schedule[-1].year, schedule[-1].month, fiscal_year_end_month)
     idxs = [i for i, m in enumerate(schedule)
-            if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == last_fy]
+            if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == last_fy
+            and (segment_start is None or (m.year, m.month) >= segment_start)]
+    if not idxs:
+        return schedule
     yearly = sum(schedule[i].numeric_depreciation for i in idxs)
     miy = len(idxs)
     base_m = yearly // miy
@@ -333,7 +341,15 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                                           DepreciationMethod.DECLINING_BALANCE,
                                           DepreciationMethod.INTANGIBLE) \
                 and schedule and schedule[-1].book_value == 1000:
-            schedule = _settle_terminal_evenly_schedule(schedule, fiscal_year_end_month)
+            event_starts = []
+            if has_increase:
+                iy, im, _ = parse_date_safe(financials.increase_date)
+                event_starts.append((iy, im))                            # 증가월부터 새 기준
+            if is_partial_disposal:
+                dy, dm, _ = parse_date_safe(financials.disposal_date)
+                event_starts.append((dy + dm // 12, dm % 12 + 1))        # 양도 익월부터 잔존분
+            schedule = _settle_terminal_evenly_schedule(
+                schedule, fiscal_year_end_month, max(event_starts) if event_starts else None)
 
         # 연도별 요약 생성 (fiscal year 단위)
         yearly_summary = generate_yearly_summary(schedule, financials.cost, fiscal_year_end_month)
@@ -347,7 +363,8 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
             last_m = schedule[-1]
             if (disp_y, disp_m) > (last_m.year, last_m.month):   # 양도가 마지막 감가상각월 이후
                 last_s = yearly_summary[-1]
-                disp_acc = round_half_up(last_s.accumulated_depreciation * financials.disposal_amount / financials.cost)
+                disp_acc = ((2 * last_s.accumulated_depreciation * financials.disposal_amount + financials.cost)
+                            // (2 * financials.cost))
                 disp_book = financials.disposal_amount - disp_acc
                 yearly_summary.append(YearlySummary(
                     year=get_fiscal_year(disp_y, disp_m, fiscal_year_end_month),

@@ -59,6 +59,22 @@ from vcore import disposal
 from vcore.monthly_schedule import monthly_events
 
 
+def neutralize_formulas(wb) -> None:
+    """저장 직전, 수식으로 해석된 셀을 전부 문자열로 되돌린다 — 엑셀 수식 주입 차단.
+
+    openpyxl은 '='로 시작하는 문자열을 수식 셀로 저장한다. 자산명 `=HYPERLINK(...)`이 그대로
+    수식이 됐다(감사 2026-09-23 M5). 이 명세서와 depverify 보고서(고객 대장의 자산명을 옮겨
+    적는 감사조서)는 **의도한 수식이 하나도 없으므로**, 셀마다 가리지 않고 저장 시점에 한 번에
+    막는다. quotePrefix는 사용자가 셀을 편집해도 수식으로 바뀌지 않게 한다.
+    """
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.data_type == "f":
+                    cell.data_type = "s"
+                    cell.quotePrefix = True
+
+
 class AssetInput:
     """자산 입력 정보 클래스"""
 
@@ -83,7 +99,10 @@ class AssetInput:
         self.asset_type = asset_type
         self.depreciation_method = depreciation_method
         self.disposal_date = disposal_date
-        self.disposal_amount = disposal_amount
+        # 0/None = 금액 미지정 = 전부양도. 정규화는 **여기 한 곳**에서 한다 — 시트3(스케줄)은
+        # `or None`으로 0을 전부양도로, 시트1(처분 제거액)은 원값 0을 넘겨 부분양도(0/0/0)로
+        # 읽어 한 파일 안에서 판단이 갈렸다(감사 2026-09-23 M4, 판단 2벌 3회차).
+        self.disposal_amount = disposal_amount or None
         self.increase_date = increase_date
         self.increase_amount = increase_amount
         self.fiscal_year_end_month = fiscal_year_end_month
@@ -205,7 +224,7 @@ class MonthlyScheduleGenerator:
         disp = None
         if ai.disposal_date:
             d = datetime.strptime(ai.disposal_date, "%Y-%m-%d")
-            disp = (ai.disposal_amount or None, d.year, d.month)   # 0/None = 전부양도
+            disp = (ai.disposal_amount, d.year, d.month)   # None = 전부양도 (AssetInput에서 정규화)
 
         cal = monthly_events(ai.acquisition_cost, ai.useful_life, acq.year, acq.month,
                              ai.fiscal_year_end_month, declining, inc=inc, disp=disp)
@@ -331,6 +350,7 @@ class ExcelGenerator:
             filename = f"감가상각스케줄_{safe_name[:60]}_{timestamp}.xlsx"
             output_path = os.path.join(output_dir, filename)
 
+        neutralize_formulas(wb)
         wb.save(output_path)
         return output_path
 

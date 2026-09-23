@@ -102,6 +102,43 @@ def test_subtotal_row_is_not_mistaken_for_grand_total(tmp_path):
     assert control.label == "총계" and control.matched
 
 
+def test_grand_total_written_as_comma_string_is_read(tmp_path):
+    """실제 더존 대장 형식 — 소계는 숫자 셀인데 '계정과목총계'만 쉼표 문자열이다.
+
+    A사 3개년 대장이 전부 이 형식이다(`'44,583,849'`). 종전 `_int_cell`은 `float()`에서
+    ValueError가 나 합계행을 못 찾은 것으로 처리했고, 완전성 게이트는 실대장에서 한 번도
+    발화하지 않았다(감사 2026-09-23 A1). 합성 정수 합계행만 쓰던 테스트가 놓친 자리다.
+    """
+    rows = [_asset_row("자산A", 12_000_000, 4_200_000, 2_400_000, 6_600_000, 5_400_000),
+            _total_row("      소         계", 2_400_000, 6_600_000, 5_400_000),
+            _asset_row("자산B", 6_000_000, 1_000_000, 1_200_000, 2_200_000, 3_800_000),
+            _total_row("계정과목총계", "3,600,000", "8,800,000", "9,200,000")]
+    _, _, _, control = read_ledger(_write(tmp_path, rows), 2025)
+    assert control.found and control.label == "계정과목총계"
+    assert control.ledger == {"exp_dep": 3_600_000, "exp_acc": 8_800_000, "exp_bk": 9_200_000}
+    assert control.matched
+
+
+def test_comma_string_grand_total_detects_dropped_asset_row(tmp_path):
+    """음성 대조 — 쉼표 문자열 합계행으로도 사라진 자산행이 드러나야 한다."""
+    rows = [_asset_row("자산A", 12_000_000, 4_200_000, 2_400_000, 6_600_000, 5_400_000),
+            _asset_row("기계장치소계", 6_000_000, 1_000_000, 1_200_000, 2_200_000, 3_800_000,
+                       상감법=None),
+            _total_row("계정과목총계", "3,600,000", "8,800,000", "9,200,000")]
+    _, _, _, control = read_ledger(_write(tmp_path, rows), 2025)
+    assert control.found and not control.matched
+    assert control.deltas == {"exp_dep": 1_200_000, "exp_acc": 2_200_000, "exp_bk": 3_800_000}
+
+
+@pytest.mark.parametrize("bad", ["1,23,456", "12,34", "1,234.5", "1.234.567", ",123", "1,,234"])
+def test_malformed_comma_string_is_not_guessed(tmp_path, bad):
+    """천 단위 구분이 어긋난 문자열은 추정하지 않는다 — 합계행을 못 읽은 것으로 남긴다."""
+    rows = [_asset_row("자산A", 12_000_000, 4_200_000, 2_400_000, 6_600_000, 5_400_000),
+            _total_row("계정과목총계", bad, "6,600,000", "5,400,000")]
+    _, _, _, control = read_ledger(_write(tmp_path, rows), 2025)
+    assert not control.found
+
+
 def test_unreadable_rows_still_count_toward_control_total(tmp_path):
     """검증불능 행도 합에 넣는다 — 빼고 더하면 합계가 안 맞는 게 당연해져 대사가 죽는다."""
     rows = [_asset_row("자산A", 12_000_000, 4_200_000, 2_400_000, 6_600_000, 5_400_000),
@@ -112,6 +149,55 @@ def test_unreadable_rows_still_count_toward_control_total(tmp_path):
     assert len(assets) == 1 and len(unreadable) == 1        # 폐기는 스코프외
     assert control.matched                                   # 그래도 합계는 맞는다
     assert control.rows_summed == 2
+
+
+# ── 감사 2026-09-23 M2: 완전성 결과가 보고서에 실린다 ─────────────────────
+
+def _matching_asset(name="자산A"):
+    """FY2025에 vcore와 원단위 일치하는 자산행 (12,000,000 / 5년 / 2022-04 취득)."""
+    return _asset_row(name, 12_000_000, 6_600_000, 2_400_000, 9_000_000, 3_000_000)
+
+
+def _run_cli(tmp_path, rows, capsys):
+    from depverify.__main__ import main
+    out = str(tmp_path / "report.xlsx")
+    code = main([_write(tmp_path, rows), "--fy", "2025", "--out", out])
+    stdout = capsys.readouterr().out
+    ws = openpyxl.load_workbook(out)["요약"]
+    summary = {r[0]: r[1:] for r in ws.iter_rows(values_only=True) if r and r[0]}
+    return code, stdout, summary
+
+
+def test_matched_control_total_is_stated_not_silent(tmp_path, capsys):
+    """대사가 맞았을 때도 말한다 — 침묵은 '안 했다'와 구별되지 않는다."""
+    rows = [_matching_asset(), _total_row("계정과목총계", "2,400,000", "9,000,000", "3,000,000")]
+    code, stdout, summary = _run_cli(tmp_path, rows, capsys)
+    assert code == 0
+    assert "[완전성] 대장 합계 대사 일치" in stdout
+    assert summary["완전성(합계 대사)"][0] == "일치"
+    assert "전 자산 시스템 산출값과 일치" in stdout
+
+
+def test_control_total_mismatch_is_in_xlsx_and_no_all_match_claim(tmp_path, capsys):
+    """불일치로 exit 1인 실행이 감사조서(xlsx)에서 깨끗해 보이면 안 된다."""
+    rows = [_matching_asset(),
+            _asset_row("기계장치소계", 6_000_000, 1_000_000, 1_200_000, 2_200_000, 3_800_000,
+                       상감법=None),
+            _total_row("계정과목총계", "3,600,000", "11,200,000", "6,800,000")]
+    code, stdout, summary = _run_cli(tmp_path, rows, capsys)
+    assert code == 1
+    assert summary["완전성(합계 대사)"][0] == "불일치"
+    assert summary["Δ (합계행 − 자산행 합)"][:3] == (1_200_000, 2_200_000, 3_800_000)
+    assert "전 자산 시스템 산출값과 일치" not in stdout      # 종전엔 불일치 바로 아래 찍혔다
+    assert "누락 여부" in stdout
+
+
+def test_control_total_absent_is_in_xlsx_as_unverified(tmp_path, capsys):
+    rows = [_matching_asset()]
+    code, stdout, summary = _run_cli(tmp_path, rows, capsys)
+    assert code == 0                                          # 정책 유지: 대사 불가는 실패 아님
+    assert summary["완전성(합계 대사)"][0] == "대사 불가"
+    assert "전 자산 시스템 산출값과 일치" not in stdout
 
 
 # ── G23: 서식 지문 ─────────────────────────────────────────────────────────

@@ -85,10 +85,21 @@ class NonIntegerCell(ValueError):
     """원 단위 셀에 소수가 들어옴. 절사하면 판정이 왜곡되므로 검증불능으로 올린다."""
 
 
+# 천 단위 쉼표 문자열. 더존 대장의 '계정과목총계' 행이 이 형식이다(A사 3개년 실측:
+# 소계는 숫자 셀, 총계만 '44,583,849'). 구분이 어긋난 문자열('1,23,456')은 추정하지 않는다.
+_COMMA_INT = re.compile(r"-?\d{1,3}(,\d{3})+")
+
+
 def _int_cell(v, label: str) -> int:
-    """원 단위 정수 셀 해석 — 소수는 조용히 절사하지 않고 NonIntegerCell."""
+    """원 단위 정수 셀 해석 — 소수는 조용히 절사하지 않고 NonIntegerCell.
+
+    쉼표 문자열을 못 읽던 동안 통제합계(완전성 게이트)는 실대장에서 한 번도 발화하지
+    않았다 — 합계행이 '없는' 것으로 처리됐다(감사 2026-09-23 A1).
+    """
     if _blank(v):
         raise ValueError(f"{label} 공백")
+    if isinstance(v, str) and _COMMA_INT.fullmatch(v.strip()):
+        return int(v.strip().replace(",", ""))
     f = float(v)
     if not f.is_integer():
         raise NonIntegerCell(f"{label} {v}")
@@ -110,6 +121,10 @@ def _date_cell(v, label: str):
     if isinstance(v, bool) or (isinstance(v, (int, float)) and not pd.isna(v)):
         raise AmbiguousDateCell(
             f"{label}이 숫자 셀({v}) — 엑셀에서 날짜 서식으로 바꾼 뒤 다시 실행하세요")
+    # 공백은 NaT로 흘려보내지 않는다 — 호출부의 `int(dt.year)`에서 터져 대장 전체가 멈췄다
+    # (감사 2026-09-23 M3). 그 행만 필드결손으로 남긴다.
+    if _blank(v):
+        raise ValueError(f"{label} 공백")
     return pd.to_datetime(v)
 
 
@@ -262,6 +277,17 @@ class ControlTotal:
         """대사 결과를 판정 근거로 쓸 수 있는가. 금액 못 읽은 행이 있으면 차이가 그 탓일 수 있다."""
         return self.found and self.rows_unsummed == 0
 
+    @property
+    def status(self) -> str:
+        return "대사 불가" if not self.found else ("일치" if self.matched else "불일치")
+
+    def line(self) -> str:
+        """보고서용 한 줄 — 일치할 때도 말한다. 침묵은 '대사를 안 했다'와 구별되지 않는다."""
+        if self.matched:
+            return (f"대장 합계 대사 일치 — 합계행 '{self.label}' = 자산행 "
+                    f"{self.rows_summed}건 합 (당기상각·누계·장부가 원단위)")
+        return self.message()
+
     def message(self) -> Optional[str]:
         if not self.found:
             return "대장 합계 대사 불가 — 합계행을 찾지 못했습니다(완전성 미검증)"
@@ -294,6 +320,9 @@ def _row_to_asset(row, cols, fy: int, fye: int) -> Tuple[Optional[dict], Optiona
     label = "" if _blank(row.get(cols["category"])) else str(row.get(cols["category"])).strip()
     if label and label not in HELD_LABELS and label not in DISPOSED_LABELS:
         return None, (ident, f"스코프외-처분구분({label} — 재계산 규칙 미확립)")
+    if not label and not _blank(row.get(cols["disposal_date"])):
+        # 공란 = 보유로 보면 양도 자산이 '차이 Δ장부 +1,000'처럼 오도적 사유로 뜬다(감사 2026-09-23)
+        return None, (ident, "구분공란-양도일있음(양도/보유 판별 불가)")
     disposed = label in DISPOSED_LABELS
 
     try:
@@ -358,6 +387,12 @@ def read_ledger(path: str, fy: int, fye: int = 12,
     cols = {**DOUZONE_COLUMNS, **(mapping or {})}
     df = pd.read_excel(path, sheet_name=sheet)
 
+    # 중복 헤더: pandas가 두 번째를 'X.1'로 바꾸고 리더는 첫 번째를 조용히 쓴다 — 어느 쪽이
+    # 진짜인지 셀만 보고 정할 수 없으므로 멈춘다(감사 2026-09-23 서식 지문).
+    dup = sorted({cols[k] for k in REQUIRED_COLUMNS if f"{cols[k]}.1" in df.columns})
+    if dup:
+        raise ValueError(f"대장에 중복 컬럼: {dup} — 어느 열을 쓸지 정할 수 없습니다. "
+                         f"하나를 지우거나 --mapping으로 지정하세요")
     missing = [f"{cols[k]}({why})" for k, why in REQUIRED_COLUMNS.items()
                if cols[k] not in df.columns]
     if missing:

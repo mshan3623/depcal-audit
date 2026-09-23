@@ -95,6 +95,24 @@ _FORBIDDEN_IN_NAME = set('<>:"/\\|?*')
 _MAX_NAME_LEN = 80
 
 
+def _whole(value, name: str) -> int:
+    """정수 칸 해석 — 소수는 절사하지 않고 거부한다(ValueError → 400).
+
+    종전 `int(v)`는 12000000.9 → 12,000,000, 5.9 → 5로 조용히 잘랐다(감사 2026-09-23). 원 단위
+    대조 도구에서 입력을 몰래 바꾸면 산출물은 사용자가 넣지 않은 자산의 표가 된다. 정수값 float
+    (5.0)과 숫자 문자열("100000000")은 받는다.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{name}는 정수여야 합니다: {value!r}")
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    raise ValueError(f"{name}는 정수여야 합니다: {value!r}")
+
+
 def _sanitize_asset_name(raw) -> str:
     """자산명을 파일명 조각으로 안전하게 만든다 (한글 보존).
 
@@ -148,17 +166,19 @@ def calculate():
         result_path = generate_depreciation_schedule(
             asset_name=data['asset_name'],
             acquisition_date=data['acquisition_date'],
-            acquisition_cost=int(data['acquisition_cost']),
-            useful_life=int(data['useful_life']),
+            acquisition_cost=_whole(data['acquisition_cost'], '취득원가'),
+            useful_life=_whole(data['useful_life'], '내용연수'),
             asset_type=data['asset_type'],
             depreciation_method=data['depreciation_method'],
             disposal_date=data.get('disposal_date'),
-            disposal_amount=int(data['disposal_amount']) if data.get('disposal_amount') else None,
+            disposal_amount=_whole(data['disposal_amount'], '처분금액') if data.get('disposal_amount') else None,
             increase_date=data.get('increase_date'),
-            increase_amount=int(data['increase_amount']) if data.get('increase_amount') else None,
+            increase_amount=_whole(data['increase_amount'], '증가금액') if data.get('increase_amount') else None,
             # 결산월 — 없으면 12월 결산. 종전에는 폼에 필드 자체가 없어 3월 결산법인이
             # 12월 결산 표를 받았고, 그 사실이 산출물 어디에도 적히지 않았다.
-            fiscal_year_end_month=int(data.get('fiscal_year_end_month') or 12),
+            # 0은 '없음'이 아니라 잘못된 값이다 — `or 12`로 12가 되던 것을 막는다(생성기가 1~12 검증).
+            fiscal_year_end_month=(12 if data.get('fiscal_year_end_month') is None
+                                   else _whole(data['fiscal_year_end_month'], '결산월')),
             output_path=str(output_path)
         )
 

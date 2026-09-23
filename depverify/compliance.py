@@ -85,12 +85,18 @@ def check_vehicles(assets: List[dict]) -> List[Finding]:
     return out
 
 
-def summary_lines(findings: List[Finding]) -> List[str]:
+def unchecked_note(unchecked: int) -> str:
+    """점검은 읽을 수 있는 자산만 본다 — 검증불능 행은 차량이어도 빠진다(감사 2026-09-23)."""
+    return f" — 단 검증불능 {unchecked}건은 점검하지 못함" if unchecked else ""
+
+
+def summary_lines(findings: List[Finding], unchecked: int = 0) -> List[str]:
     """stdout·보고서 공용 요약. 점검 항목이 없어도 '검사했다'는 사실을 남긴다."""
     if not findings:
-        return ["  업무용승용차 점검: 요건 불일치 후보 없음 "
-                "(해당 여부는 개별소비세법 §1②3호·영업용 제외 요건으로 감사인이 확정)"]
-    lines = [f"  ⚠ 업무용승용차 점검: {len(findings)}건 — 재계산 '일치'와 별개로 적법성 확인 필요"]
+        return ["  업무용승용차 점검: 요건 불일치 후보 없음" + unchecked_note(unchecked) +
+                " (해당 여부는 개별소비세법 §1②3호·영업용 제외 요건으로 감사인이 확정)"]
+    lines = [f"  ⚠ 업무용승용차 점검: {len(findings)}건 — 재계산 '일치'와 별개로 적법성 확인 필요"
+             + unchecked_note(unchecked)]
     for f in findings:
         lines.append(f"    [{f.issue}] {f.asset_name} ({f.account})")
         lines.append(f"       {f.detail}")

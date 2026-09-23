@@ -5,6 +5,7 @@
 """
 import argparse
 import json
+import os
 import re
 import sys
 
@@ -16,11 +17,26 @@ from depverify.verdict import verify_all
 
 
 def _infer_fy(path: str):
-    m = re.search(r"_(\d{4})1231", path)
+    # 파일명에서만 찾는다 — 경로 전체를 보면 상위 폴더명(audit_20231231/)이 이겨 전 자산이
+    # '차이'로 뜬다(감사 2026-09-23).
+    m = re.search(r"_(\d{4})1231", os.path.basename(path))
     return int(m.group(1)) if m else None
 
 
 def main(argv=None) -> int:
+    """종료코드 계약: 0 일치 / 1 차이·검증불능 / 2 실행 오류.
+
+    예상 밖 예외(출력 파일 잠김 — 보고서를 엑셀로 열어둔 경우 등)가 traceback과 함께 exit 1로
+    나가 '차이'와 구별되지 않았다(감사 2026-09-23). 실행 오류는 전부 2로 모은다.
+    """
+    try:
+        return _main(argv)
+    except Exception as e:                  # argparse의 SystemExit(2)는 Exception이 아니라 그대로 통과
+        print(f"오류: 실행 중 예외 — {type(e).__name__}: {e}", file=sys.stderr)
+        return 2
+
+
+def _main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="depverify",
                                 description="더존 고정자산관리대장 감가상각 일괄 검증")
     p.add_argument("xlsx", help="고정자산관리대장 xlsx 경로")
@@ -43,8 +59,12 @@ def main(argv=None) -> int:
 
     mapping = None
     if args.mapping:
-        with open(args.mapping, encoding="utf-8") as f:
-            mapping = json.load(f)
+        try:
+            with open(args.mapping, encoding="utf-8") as f:
+                mapping = json.load(f)
+        except (OSError, ValueError) as e:
+            print(f"오류: --mapping 파일을 읽을 수 없습니다 — {e}", file=sys.stderr)
+            return 2
 
     # "1"은 시트 **이름**이 아니라 인덱스로 해석돼야 한다 — 문자열로 흘리면 pandas가
     # 이름으로 찾다가 실패한다(감사 G19). 이름이 숫자인 시트는 없다고 본다.
@@ -65,20 +85,18 @@ def main(argv=None) -> int:
 
     # 완전성 대사를 요약 맨 위에 올린다 — 자산행이 통째로 빠졌다면 아래의 '일치 N건'은
     # 빠진 행을 세지 않은 숫자다. 판정 건수보다 먼저 읽혀야 한다(감사 G11).
-    control_message = control.message()
-    if control_message:
-        print(f"[완전성] {control_message}\n")
-    print(summary_text(result, fy, meta))
+    print(f"[완전성] {control.line()}\n")
+    print(summary_text(result, fy, meta, control))
 
     # 적법성 점검 — 재계산 대조가 원리적으로 못 잡는 축(대장이 법령에 어긋난 방법을
     # 써도 그 방법대로 맞으면 '일치'가 난다). 판정이 아니라 검토 지원이다.
     findings = check_vehicles(assets)
     print()
-    for line in summary_lines(findings):
+    for line in summary_lines(findings, unchecked=len(unreadable)):
         print(line)
 
     out = args.out or re.sub(r"\.xlsx$", "", args.xlsx) + "_검증보고서.xlsx"
-    write_xlsx(result, fy, out, meta, findings)
+    write_xlsx(result, fy, out, meta, findings, control, unchecked=len(unreadable))
     print(f"보고서: {out}")
 
     c = result.counts()

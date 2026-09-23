@@ -51,22 +51,29 @@ def standard_monthly(cost: int, life_years: int, acq_month: int,
     return months
 
 
-def settle_terminal_evenly(months: List[Month]) -> List[Month]:
+def settle_terminal_evenly(months: List[Month], start: int = 0) -> List[Month]:
     """자연완료 스케줄의 종료해(마지막 회계연도) 잔재 정리를 그해 월수로 균등 재배분한다.
 
     원칙: 종료해 연간상각액(=벡터의 그해 월상각 총합, 불변)을 먼저 확정 → 월할 균등 + 마지막
     달 보정. 정률법 5% 잔재의 '마지막 달 dump'를 제거하고 연간상각액의 일부로 균등 안분한다
     (법인세법 시행령 제26조⑥ '상각범위액에 가산'의 월 단위 적용). 정액법도 별표4율 × n ≠ 1인
     연수(6년 0.166×6=0.996, 7년 0.142×7=0.994, 14년 등)에는 종료해 잔재가 남으므로 같은
-    원칙으로 균등 배분한다 — 무변(no-op)인 것은 잔재가 0인 연수뿐이다. basis-free: 종료해
-    총액·직전 장부가를 벡터에서 도출하므로 취득가 변동(capex
-    증가·부분양도 감소) 잔여표에도 안전. 단 절단 경로(전체양도, 미완료 구간)에는 적용하지 않는다.
+    원칙으로 균등 배분한다 — 무변(no-op)인 것은 잔재가 0인 연수뿐이다. 단 절단 경로(전체양도,
+    미완료 구간)에는 적용하지 않는다.
+
+    `start` = 마지막 이벤트(capex 증가월·부분양도 익월)의 상대 인덱스. 균등화는 종료해 중
+    **start 이후 구간**에만 한다 — 미래의 사건은 지나간 달을 바꾸지 않는다. 종전에는 종료해
+    12개월 전체를 균등화해, 종료해 안의 이벤트 이전 달이 이벤트 이후 기준 금액으로 바뀌었다
+    (capex 7월 → 1~6월 장부가 음수, 부분양도 6월 → 엑셀 시트1 처분 누계 ≠ 시트3 누계 하락
+    180,090원. 연간 합계는 맞아 연도별 대조로는 안 보였다 — 감사 2026-09-23 A3, INC-14).
     """
     if not months:
         return months
     last_fy = months[-1].fy_index
-    idxs = [i for i, m in enumerate(months) if m.fy_index == last_fy]
-    yearly = sum(months[i].amount for i in idxs)             # 종료해 연간상각액(총합, 불변)
+    idxs = [i for i, m in enumerate(months) if m.fy_index == last_fy and i >= start]
+    if not idxs:
+        return months
+    yearly = sum(months[i].amount for i in idxs)             # 종료해 (이벤트 후) 상각액 총합, 불변
     miy = len(idxs)
     base_m = yearly // miy
     rem = yearly - base_m * miy
@@ -84,12 +91,17 @@ def settle_terminal_evenly(months: List[Month]) -> List[Month]:
     return months
 
 
-def apply_ratio_from(base: List[Month], start: int, ratio: float, acc: int, book: int) -> List[Month]:
-    """이벤트월(상대 인덱스 start)부터 base 월상각을 ratio로 스케일하는 공용 골격.
+def apply_ratio_from(base: List[Month], start: int, num: int, den: int,
+                     acc: int, book: int) -> List[Month]:
+    """이벤트월(상대 인덱스 start)부터 base 월상각을 비율 num/den으로 스케일하는 공용 골격.
+
+    비율은 **정수 분자·분모**로 받는다 — float 비율(`1.0 - D/cost`)은 정확한 정수 결과를
+    1원 내렸다(55% 양도: 2,000,000 × 0.45 → 899,999. 감사 2026-09-23 A2, INC-13).
+    금액 × 비율은 `x * num // den` 하나로만 계산한다(INC-01·04와 같은 원단위 산술 계열).
 
     capex 증가(ratio>1, 이벤트 시점 book만 증가)와 부분양도(ratio<1, 이벤트 시점
     acc·book 분배 차감)의 거울 루프 단일화 — 이벤트 진입 acc/book은 호출자가 확정해
-    넘긴다. 연도별 연말보정으로 연 목표 int(base연합×ratio) 달성, 마지막 달은 비망가
+    넘긴다. 연도별 연말보정으로 연 목표 base연합×num//den 달성, 마지막 달은 비망가
     정리, book 음수 방지(레퍼런스 동일: acc는 보정 전 금액 유지).
     """
     n = len(base)
@@ -104,10 +116,10 @@ def apply_ratio_from(base: List[Month], start: int, ratio: float, acc: int, book
             amount = max(0, book - MEMORANDUM)
         elif is_last_of_fy:
             year_base_sum = sum(base[j].amount for j in range(start, n) if base[j].fy_index == fy)
-            year_target = int(year_base_sum * ratio)
+            year_target = year_base_sum * num // den
             amount = year_target - year_acc[fy]
         else:
-            amount = int(base[idx].amount * ratio)
+            amount = base[idx].amount * num // den
         year_acc[fy] += amount
         acc += amount
         book -= amount

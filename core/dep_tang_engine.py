@@ -52,7 +52,6 @@ from .dep_common import (
     parse_date_safe,
     add_months_safe,
     to_int,
-    round_half_up,
     safe_int_conversion
 )
 
@@ -890,12 +889,12 @@ def _calculate_with_increase(cost: int, life_years: int, start_date: str,
                 m for m in vector_months
                 if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
             ]
-            year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * ratio)
+            year_target = sum(m.numeric_depreciation for m in year_vector_months) * combined_book_value // prev_month_record.book_value
             monthly_amount = year_target - yearly_accumulated[current_fy]['accumulated']
             logger.debug(f"결산월 보정 ({vector_month.year}-{vector_month.month:02d} FY{current_fy}): 연간목표 {year_target:,}원, 보정금액 {monthly_amount:,}원")
         else:
             # 일반월: 기존 Vector × 비율
-            monthly_amount = int(vector_month.numeric_depreciation * ratio)
+            monthly_amount = vector_month.numeric_depreciation * combined_book_value // prev_month_record.book_value
 
         # 회계연도별 누적 업데이트
         yearly_accumulated[current_fy]['accumulated'] += monthly_amount
@@ -937,7 +936,7 @@ def _calculate_with_increase(cost: int, life_years: int, start_date: str,
 
         # 양도 시점에서 감소 (Integer 기준 정확한 계산)
         # 양도 시점 분배 (회계 원칙: 양도 누계 = round, 잔존 = 차감으로 무결성 보장)
-        disposal_accumulated = round_half_up(disposal_prev_record.accumulated_depreciation * disposal_amount / actual_cost_at_disposal)
+        disposal_accumulated = (2 * disposal_prev_record.accumulated_depreciation * disposal_amount + actual_cost_at_disposal) // (2 * actual_cost_at_disposal)
         disposal_book_value = disposal_amount - disposal_accumulated
 
         disposal_check = disposal_book_value + disposal_accumulated
@@ -994,12 +993,16 @@ def _calculate_with_increase(cost: int, life_years: int, start_date: str,
                     m for m in vector_months_after_disposal
                     if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
                 ]
-                year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * ratio * remaining_ratio)
+                year_target = (sum(m.numeric_depreciation for m in year_vector_months) * combined_book_value
+                               * (actual_cost_at_disposal - disposal_amount)
+                               // (prev_month_record.book_value * actual_cost_at_disposal))
                 monthly_amount = year_target - yearly_accumulated_after[current_fy]['accumulated']
                 logger.debug(f"결산월 보정 ({vector_month.year}-{vector_month.month:02d} FY{current_fy}): 연간목표 {year_target:,}원")
             else:
                 # 일반월: 증가 비율 × 잔존 비율
-                monthly_amount = int(vector_month.numeric_depreciation * ratio * remaining_ratio)
+                monthly_amount = (vector_month.numeric_depreciation * combined_book_value
+                                  * (actual_cost_at_disposal - disposal_amount)
+                                  // (prev_month_record.book_value * actual_cost_at_disposal))
 
             yearly_accumulated_after[current_fy]['accumulated'] += monthly_amount
             yearly_accumulated_after[current_fy]['months_in_year'] += 1
@@ -1212,12 +1215,12 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
                 m for m in vector_months
                 if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
             ]
-            year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * ratio)
+            year_target = sum(m.numeric_depreciation for m in year_vector_months) * combined_book_value // prev_month_record.book_value
             monthly_amount = year_target - yearly_accumulated[current_fy]['accumulated']
             logger.debug(f"결산월 보정 ({vector_month.year}-{vector_month.month:02d} FY{current_fy}): 연간목표 {year_target:,}원, 보정금액 {monthly_amount:,}원")
         else:
             # 일반월: 기존 Vector × 비율
-            monthly_amount = int(vector_month.numeric_depreciation * ratio)
+            monthly_amount = vector_month.numeric_depreciation * combined_book_value // prev_month_record.book_value
 
         # 회계연도별 누적 업데이트
         yearly_accumulated[current_fy]['accumulated'] += monthly_amount
@@ -1258,7 +1261,7 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
         logger.info(f"실제 잔존 비율: {remaining_ratio:.4f} ({remaining_ratio*100:.2f}%)")
 
         # 양도 시점 분배 (회계 원칙: 양도 누계 = round, 잔존 = 차감으로 무결성 보장)
-        disposal_accumulated = round_half_up(disposal_prev_record.accumulated_depreciation * disposal_amount / actual_cost_at_disposal)
+        disposal_accumulated = (2 * disposal_prev_record.accumulated_depreciation * disposal_amount + actual_cost_at_disposal) // (2 * actual_cost_at_disposal)
         disposal_book_value = disposal_amount - disposal_accumulated
 
         disposal_check = disposal_book_value + disposal_accumulated
@@ -1326,12 +1329,16 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
                     m for m in vector_months_after_disposal
                     if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
                 ]
-                year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * ratio * remaining_ratio)
+                year_target = (sum(m.numeric_depreciation for m in year_vector_months) * combined_book_value
+                               * (actual_cost_at_disposal - disposal_amount)
+                               // (prev_month_record.book_value * actual_cost_at_disposal))
                 monthly_amount = year_target - yearly_accumulated_after[current_fy]['accumulated']
                 logger.debug(f"결산월 보정 ({vector_month.year}-{vector_month.month:02d} FY{current_fy}): 연간목표 {year_target:,}원, 보정금액 {monthly_amount:,}원")
             else:
                 # 일반월: 기존 Vector × 증가 비율 × 잔존 비율
-                monthly_amount = int(vector_month.numeric_depreciation * ratio * remaining_ratio)
+                monthly_amount = (vector_month.numeric_depreciation * combined_book_value
+                                  * (actual_cost_at_disposal - disposal_amount)
+                                  // (prev_month_record.book_value * actual_cost_at_disposal))
 
             # 회계연도별 누적 업데이트 (양도 후 전용)
             yearly_accumulated_after[current_fy]['accumulated'] += monthly_amount
@@ -1469,7 +1476,7 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
         ))
 
     # 양도 시점 분배 (회계 원칙: 양도 누계 = round, 잔존 = 차감으로 무결성 보장)
-    disposal_accumulated = round_half_up(prev_month_record.accumulated_depreciation * disposal_amount / cost)
+    disposal_accumulated = (2 * prev_month_record.accumulated_depreciation * disposal_amount + cost) // (2 * cost)
     disposal_book_value = disposal_amount - disposal_accumulated
 
     disposal_check = disposal_book_value + disposal_accumulated
@@ -1534,12 +1541,12 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
                 m for m in vector_months
                 if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
             ]
-            year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * remaining_ratio)
+            year_target = sum(m.numeric_depreciation for m in year_vector_months) * (cost - disposal_amount) // cost
             monthly_amount = year_target - yearly_accumulated[current_fy]['accumulated']
             calculation_method = "한국세법정률법(부분양도-결산월보정)"
         else:
             # 일반월: Vector × 잔존비율
-            monthly_amount = int(base_monthly_dep * remaining_ratio)
+            monthly_amount = base_monthly_dep * (cost - disposal_amount) // cost
             calculation_method = "한국세법정률법(부분양도)"
 
         # 값 업데이트
@@ -1697,7 +1704,7 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
         prev_acc = accumulated
         prev_bv = cost - accumulated
         
-        disposal_acc = int(disposal_amount * (prev_acc / cost))
+        disposal_acc = disposal_amount * prev_acc // cost
         current_accumulated = prev_acc - disposal_acc
         remaining_cost = cost - disposal_amount
         current_book_value = remaining_cost - current_accumulated
@@ -1792,7 +1799,7 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
 
     # 양도 시점의 장부가액과 누적상각을 잔존비율로 재조정 (Integer 기준 정확한 계산)
     # 양도 시점 분배 (회계 원칙: 양도 누계 = round, 잔존 = 차감으로 무결성 보장)
-    disposal_accumulated = round_half_up(prev_month_record.accumulated_depreciation * disposal_amount / cost)
+    disposal_accumulated = (2 * prev_month_record.accumulated_depreciation * disposal_amount + cost) // (2 * cost)
     disposal_book_value = disposal_amount - disposal_accumulated
 
     disposal_check = disposal_book_value + disposal_accumulated
@@ -1842,7 +1849,7 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
         ))
 
     # 양도 시점 분배 (회계 원칙: 양도 누계 = round, 잔존 = 차감으로 무결성 보장)
-    disposal_accumulated = round_half_up(prev_month_record.accumulated_depreciation * disposal_amount / cost)
+    disposal_accumulated = (2 * prev_month_record.accumulated_depreciation * disposal_amount + cost) // (2 * cost)
     disposal_book_value = disposal_amount - disposal_accumulated
 
     current_book_value = prev_month_record.book_value - disposal_book_value
@@ -1894,13 +1901,13 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
                 m for m in vector_months
                 if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == current_fy
             ]
-            year_target = int(sum(m.numeric_depreciation for m in year_vector_months) * remaining_ratio)
+            year_target = sum(m.numeric_depreciation for m in year_vector_months) * (cost - disposal_amount) // cost
             monthly_amount = year_target - yearly_accumulated[current_fy]['accumulated']
             calculation_method = "정액법(부분양도-결산월보정)"
             logger.info(f"결산월 보정 ({vector_month.year}-{vector_month.month:02d} FY{current_fy}): 목표 {year_target:,}원, 보정 {monthly_amount:,}원")
         else:
             # 일반월: Vector × 잔존비율 (integer 변환)
-            monthly_amount = int(base_monthly_dep * remaining_ratio)
+            monthly_amount = base_monthly_dep * (cost - disposal_amount) // cost
             calculation_method = "정액법(부분양도)"
 
         # 값 업데이트

@@ -164,3 +164,58 @@ def test_core_separate_asset_mirror_agrees_on_affected_lives(cost, life, expecte
           s.accumulated_depreciation, s.ending_book_value) for s in r.yearly_summary]
     assert v == c
     assert v[0][2] == min(_db_exact(cost - prior, life, 12), cost - prior - 1000)
+
+
+# ── (5) 부분양도 잔존비율 — 비율 산술도 정수로 (감사 2026-09-23 A2, INC-13) ──────
+# `remaining_ratio = 1.0 - D/cost`가 float라, 양도 후 연 목표 `int(base연합 × ratio)`가
+# 정확한 정수 결과를 1원 내렸다. 55% 양도면 2,000,000 × 0.45 = 900,000이 899,999가 됐다.
+# 5년 자산에서도 발화한다 — 상각률 정수 관문(INC-04)은 **상각률**에만 섰고 비율은 밖에 있었다.
+# 오라클: 양도 이후 온전한 회계연도의 상각 = base연상각 × (cost − D) // cost (float 개입 0).
+from vcore import disposal  # noqa: E402
+
+PARTIAL_PINS = [
+    # (취득원가, 연수, 양도액, 정률여부, FY, 기대 상각) — 수정 전 값은 각각 1원 작았다
+    (10_000_000, 5, 5_500_000, False, 2021, 900_000),     # float 899,999
+    (10_000_000, 5, 8_000_000, False, 2021, 400_000),     # float 399,999
+    (10_000_000, 5, 8_000_000, True, 2021, 495_198),      # 2,475,990 × 0.2 → float 495,197
+]
+
+
+def _partial(cost, life, amount, declining, disp_month=6):
+    fn = (disposal.schedule_partial_disposal_declining if declining
+          else disposal.schedule_partial_disposal)
+    return fn(cost, life, 2020, 1, amount, 2020, disp_month)
+
+
+def _base(cost, life, declining):
+    return (declining_balance.schedule if declining else straight_line.schedule)(cost, life, 2020, 1)
+
+
+@pytest.mark.parametrize("cost,life,amount,declining,fy,expected", PARTIAL_PINS)
+def test_partial_disposal_keeps_exact_integer_result(cost, life, amount, declining, fy, expected):
+    row = next(r for r in _partial(cost, life, amount, declining) if r.fiscal_year == fy)
+    assert row.depreciation == expected
+
+
+@pytest.mark.parametrize("declining", [False, True])
+@pytest.mark.parametrize("life", [3, 5, 7, 9, 10, 14, 20])
+def test_partial_disposal_full_years_match_integer_oracle(life, declining):
+    """퍼센트 양도(1~99%) × 원가 표본에서 양도 이후 온전한 회계연도를 정수 오라클과 대조."""
+    bad = []
+    for cost in (1_000_000, 3_000_000, 10_000_000, 12_345_000, 250_000_000):
+        base = {r.fiscal_year: r.depreciation for r in _base(cost, life, declining)}
+        for pct in range(1, 100):
+            amount = cost * pct // 100
+            rows = _partial(cost, life, amount, declining)
+            for r in rows[1:-1]:                     # 양도연도·종료해 제외 = 온전한 연도
+                want = base[r.fiscal_year] * (cost - amount) // cost
+                if r.depreciation != want:
+                    bad.append((cost, pct, r.fiscal_year, r.depreciation, want))
+    assert not bad, f"{len(bad)}건 불일치, 예: {bad[:5]}"
+
+
+@pytest.mark.parametrize("cost,life,amount,declining,fy,expected", PARTIAL_PINS)
+def test_partial_disposal_monthly_events_path_agrees(cost, life, amount, declining, fy, expected):
+    """운영 경로(monthly_events)도 같은 관문을 지난다."""
+    months = monthly_events(cost, life, 2020, 1, declining=declining, disp=(amount, 2020, 6))
+    assert sum(m.amount for m in months if m.year == fy) == expected

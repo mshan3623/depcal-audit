@@ -17,7 +17,7 @@ from typing import List
 from vcore import monthly
 from vcore.monthly import Month
 from vcore.projection import (
-    FiscalYearRow, standard_acq_month, first_fiscal_year, round_half_up,
+    FiscalYearRow, standard_acq_month, first_fiscal_year,
     validate_asset_inputs,
 )
 
@@ -85,7 +85,7 @@ def disposal_split(basis: int, acc: int, book: int, disposal_amount) -> tuple:
     """
     if is_full_disposal(basis, disposal_amount):
         return basis, acc, book, False
-    disp_acc = round_half_up(acc * disposal_amount / basis)
+    disp_acc = (2 * acc * disposal_amount + basis) // (2 * basis)   # 4사5입, 정수 산술(INC-13)
     return disposal_amount, disp_acc, disposal_amount - disp_acc, True
 
 
@@ -99,13 +99,12 @@ def apply_partial_disposal(base: List[Month], cost: int, d: int, disposal_amount
     """
     if not 0 < disposal_amount < cost:   # ≥cost는 호출부가 전부양도(절단)로 위임, ≤0은 도메인 밖
         raise ValueError(f"부분양도 금액은 0 < 금액 < 취득원가여야 합니다 (disposal_amount={disposal_amount}, cost={cost})")
-    remaining_ratio = 1.0 - disposal_amount / cost
     prev = base[d - 1]                                   # 양도월 (마지막 전체기준 상각월)
     # 양도월말 분배: 양도 누계 = 4사5입, 잔존 = 차감으로 무결성 보장
     _, disposal_accumulated, disposal_book, _ = disposal_split(cost, prev.acc, prev.book,
                                                                disposal_amount)
     # 잔존 누계·장부가로 진입 — 스케일 루프는 capex와 공용 골격 사용
-    return monthly.apply_ratio_from(base, d, remaining_ratio,
+    return monthly.apply_ratio_from(base, d, cost - disposal_amount, cost,   # 잔존비율(정수)
                                     prev.acc - disposal_accumulated, prev.book - disposal_book)
 
 
@@ -120,7 +119,7 @@ def months_partial_disposal(monthly_fn, cost, life_years, acq_year, acq_month,
         return base[:d + 1]
     ev = min(d + 1, len(base))            # 양도월 포함(더존 공식), 종료 후 양도는 경계로 클램프
     months = apply_partial_disposal(base, cost, ev, disposal_amount)
-    return monthly.settle_terminal_evenly(months)   # 자연완료: 종료해 균등 재배분
+    return monthly.settle_terminal_evenly(months, ev)   # 자연완료: 종료해 균등(양도 이후 구간)
 
 
 def _schedule_partial_disposal(monthly_fn, cost, life_years, acq_year, acq_month,

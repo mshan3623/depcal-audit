@@ -37,9 +37,9 @@ def apply_increase(base: List[Month], k: int, inc_amount: int) -> List[Month]:
     if k >= len(base):      # 자연종료 이후 증가는 미지원 — 조용한 무시/IndexError 방지
         raise ValueError(f"자본적지출 시점(취득 후 {k}개월)이 내용연수 종료 이후입니다")
     prev = base[k - 1]                                   # 증가 직전월
-    ratio = (prev.book + inc_amount) / prev.book
     # 증가 시 누계 불변 (book만 증가) — 스케일 루프는 부분양도와 공용 골격 사용
-    return monthly.apply_ratio_from(base, k, ratio, prev.acc, prev.book + inc_amount)
+    return monthly.apply_ratio_from(base, k, prev.book + inc_amount, prev.book,   # 비율(정수)
+                                    prev.acc, prev.book + inc_amount)
 
 
 def months_with_increase(monthly_fn, cost, life_years, acq_year, acq_month,
@@ -50,7 +50,7 @@ def months_with_increase(monthly_fn, cost, life_years, acq_year, acq_month,
     k = (inc_year * 12 + inc_month) - (acq_year * 12 + acq_month)   # 취득→증가 개월 간격 (불변량)
     base = monthly_fn(cost, life_years, m_std)
     months = apply_increase(base, k, inc_amount)
-    return monthly.settle_terminal_evenly(months)   # 자연완료: 종료해 균등 재배분
+    return monthly.settle_terminal_evenly(months, k)   # 자연완료: 종료해 균등(증가 이후 구간)
 
 
 def _schedule_with_increase(monthly_fn, cost, life_years, acq_year, acq_month,
