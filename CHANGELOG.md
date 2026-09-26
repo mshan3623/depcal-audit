@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **개발비를 시행령 §26①6대로 1/n 경과월수 비례로 계산** (외부 평가 2026-09-26 ④) — 별표4 정액을 쓰던 것을
+  `취득가액 ÷ 신고내용연수`(1~20년, 4사5입)로. 별표4율과 1/n이 같은 4·5·8·10·20년은 1원까지 무변,
+  3·6·7·9년 등에서 달라진다(1억·3년 33,300,000 → 33,333,333). `vcore.intangible.schedule_development_cost`·
+  `schedule_full_disposal_development_cost` 신설, depverify는 계정과목 '개발비'만 이 경로로 보낸다. 일반 무형은
+  별표4 유지. ⚠️ 더존의 개발비 산식은 실측이 없다 — 대장이 별표4로 계산했다면 3·6·7·9년 개발비는 '차이'로 나온다.
+
 ### Fixed
 - **정률법 잔존가액을 5%가 처음 되는 해에 정리** (외부 평가 2026-09-26 ①, INC-16) — 시행령 §26⑥은 잔존가액(5%)을
   '미상각잔액이 최초로 취득가액의 5% 이하가 되는 사업연도'에 가산하게 하는데, 엔진은 내용연수 종료해에 정리했다.
@@ -21,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rate_table.py`·감사조서 출처 시트(`provenance.py`)·README.
 
 ### Docs
+- **법령 문언과의 알려진 편차**를 `docs/TRUTH_MATRIX.md`에 표로 — ②정액 종료해 잔재·③자본적지출은 실측 앵커까지
+  현행 유지(사용자 결정), 편차의 존재와 크기를 `test_known_statute_deviations.py`로 고정. README 고지 절에 수기 확인 대상 3종.
+- **README 신설법인 첫 사업연도 설명 정정** — §26⑧ 안분은 법 제7·8조(변경·의제) 사업연도용이고, 신설법인 첫해는
+  법 제6조 사업연도라 문언상 §28② 환산내용연수 대상이다. 정액은 더존 실측 84건이 월할과 일치, **정률은 미확정 → 수기 확인**.
+- README 범위 밖에 사용수익기부자산·주파수이용권 등(§26①7·8)과 정관상 1년 미만 사업연도(§28②) 추가.
 - README '정률법 마지막 달 폭증' 절을 현행 동작(종료해 월할 균등, 5% 교차 해)으로 교체 — 예시가 폐기된 dump 동작이었다.
 - README 라이선스 'Private Use' → Apache License 2.0(LICENSE와 일치). NOTICE의 없는 'README의 GPG 서명' 참조 제거.
   'Korean Tax Law-compliant' 배지 → '별표4 기준'(정액 잔재·자본적지출·개발비 문언 이탈이 결정 대기 중이라 과대표시).

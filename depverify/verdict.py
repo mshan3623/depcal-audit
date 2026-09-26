@@ -26,6 +26,8 @@ from typing import List, Optional
 
 from vcore.declining_balance import schedule as db_schedule
 from vcore.disposal import schedule_full_disposal, schedule_full_disposal_declining
+from vcore.intangible import (schedule_development_cost,
+                              schedule_full_disposal_development_cost)
 from vcore.straight_line import schedule as sl_schedule
 
 
@@ -52,10 +54,18 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
     fy, cost, life = a["fy"], a["cost"], a["life"]
     intang, disposed = a["intang"], a["disposed"]
     fye = a.get("fye", 12)
-    declining = (method == "정률법") and not intang    # 무형은 항상 별표4 정액
+    declining = (method == "정률법") and not intang    # 무형은 정액(별표4, 개발비만 1/n)
+    # 개발비(시행령 §26①6)는 별표4가 아니라 취득가액 ÷ 신고내용연수의 경과월수 비례다.
+    # 계정과목으로만 가린다 — 자산명의 '개발'은 소프트웨어 등 다른 무형에도 흔하다.
+    development_cost = intang and "개발비" in (a.get("account") or "")
 
     try:
-        if disposed:
+        if development_cost and disposed:
+            sch = schedule_full_disposal_development_cost(cost, life, a["acq_y"], a["acq_m"],
+                                                          a["disp_y"], a["disp_m"], fye)
+        elif development_cost:
+            sch = schedule_development_cost(cost, life, a["acq_y"], a["acq_m"], fye)
+        elif disposed:
             fn = schedule_full_disposal_declining if declining else schedule_full_disposal
             sch = fn(cost, life, a["acq_y"], a["acq_m"], a["disp_y"], a["disp_m"], fye)
         else:
