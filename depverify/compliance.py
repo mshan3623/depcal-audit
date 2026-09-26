@@ -32,6 +32,13 @@ VEHICLE_HINTS = ("차량운반구", "차량", "승용차", "승용자동차", "�
 REQUIRED_METHOD = "정액법"
 REQUIRED_LIFE = 5
 
+#: 5년 정액 강제는 2016.1.1 이후 개시 사업연도에 취득한 차량부터다(2016.2.12 시행령 부칙
+#: 적용례). 그 전에 취득해 정률법으로 상각해 온 차량은 종전 방법이 적법하다 — 조건 없이
+#: 점검하면 비망가로 보유 중인 2015년 이전 차량이 '요건 불일치'로 뜬다(외부 평가 2026-09-26).
+#: 결산월이 12월이 아니면 2016년 초 취득분도 2015년 개시 사업연도일 수 있으나, 그 경계는
+#: 후보로 남겨 감사인이 판단한다(놓치는 쪽이 더 위험하다).
+FORCED_FROM_YEAR = 2016
+
 #: 법 §27조의2 ③ 감가상각비 손금 한도(업무사용금액 기준). 부동산임대업 주업 등은 400만원(⑤).
 ANNUAL_DEDUCTION_CAP = 8_000_000
 
@@ -64,9 +71,11 @@ def check_vehicles(assets: List[dict]) -> List[Finding]:
         method, life = a.get("method"), a.get("life")
 
         wrong = []
-        if method and method != REQUIRED_METHOD:
+        acq_y = a.get("acq_y")
+        forced = acq_y is None or acq_y >= FORCED_FROM_YEAR   # 취득연도 미상은 후보로 남긴다
+        if forced and method and method != REQUIRED_METHOD:
             wrong.append(f"상각방법 {method}")
-        if life is not None and life != REQUIRED_LIFE:
+        if forced and life is not None and life != REQUIRED_LIFE:
             wrong.append(f"내용연수 {life}년")
         if wrong:
             out.append(Finding(

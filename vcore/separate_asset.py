@@ -75,7 +75,10 @@ def schedule_separate_asset(cost: int, life_years: int, acq_year: int, acq_month
         remaining = book - MEMORANDUM
         if remaining <= 0:
             return []
-        dep = remaining if is_terminal else min(yearly, remaining)
+        # 종료해 또는 미상각잔액이 처음 취득가액 5% 이하가 되는 해에 잔액 전액(§26⑥ —
+        # declining_balance.month_counts와 같은 규칙. 그 해 이후는 remaining ≤ 0 → []).
+        crosses = (book - min(yearly, remaining)) * 20 <= cost
+        dep = remaining if is_terminal or crosses else min(yearly, remaining)
     else:
         annual = annual_depreciation(cost, life_years)  # 별표4 정액 연상각(cost 기준)
         remaining = cost - prior_accumulated - MEMORANDUM

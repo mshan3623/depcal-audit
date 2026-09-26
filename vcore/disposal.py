@@ -137,7 +137,9 @@ def _schedule_partial_disposal(monthly_fn, cost, life_years, acq_year, acq_month
     d = (disp_year * 12 + disp_month) - (acq_year * 12 + acq_month)
     # 종료월(d=n-1) 포함: 종료월 양도는 그 달까지 상각(자연완료와 동일) 후 분배만 남으므로
     # 자연종료 후 양도와 같은 조정행 경로 — 미포함 시 양도가 무흔적으로 사라짐(조용한 무시)
-    if disposal_amount < cost and d >= life_years * 12 - 1:    # 자연종료(종료월 포함) 후 부분양도
+    # 자연종료월 = base 마지막 인덱스. `life_years * 12 - 1`이 아니다 — 정률은 5% 교차 해에서
+    # 내용연수보다 먼저 끝날 수 있다(§26⑥). months 길이는 양도 시점과 무관하게 base 길이다.
+    if disposal_amount < cost and d >= len(months) - 1:        # 자연종료(종료월 포함) 후 부분양도
         m_std = standard_acq_month(fiscal_end_month, acq_month)
         last = rows[-1]                                        # 자연종료 시점(완전상각)
         _, disp_acc, disp_book, _ = disposal_split(cost, last.accumulated, last.book_value,

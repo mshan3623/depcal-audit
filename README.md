@@ -2,7 +2,7 @@
 
 [![Status](https://img.shields.io/badge/status-canonical-green)]()
 [![Branch](https://img.shields.io/badge/DepCal.git-vector-blue)]()
-[![Korean Tax Law](https://img.shields.io/badge/Korean%20Tax%20Law-compliant-blue)]()
+[![Korean Tax Law](https://img.shields.io/badge/Korean%20Tax%20Law-%EB%B3%84%ED%91%9C4%20%EA%B8%B0%EC%A4%80-blue)]()
 [![Accuracy](https://img.shields.io/badge/vs%20reference-1원%20일치-brightgreen)]()
 [![Real Data](https://img.shields.io/badge/A사%20실대장-99%2F99-brightgreen)]()
 
@@ -149,7 +149,7 @@ import 그래프를 정적 검사해 이 경계를 고정합니다(함수 내부
 
 ### 상각률표는 `vcore/rate_table.py`가 정본입니다
 
-법인세법 시행령 [별표 4] 상각률표는 이 엔진에서 유일하게 '외부에서 주어진 사실'이라
+법인세법 시행규칙 [별표 4] 상각률표는 이 엔진에서 유일하게 '외부에서 주어진 사실'이라
 별도 모듈로 분리하고, 법 원문 표기 그대로 **1000분율 정수(할·분·리)** 로 전사합니다.
 `core/dep_common.py`도 같은 표를 자체 리터럴로 들고 있는데 — 오라클이 검증 대상과
 데이터를 공유하면 오라클이 아니므로 **일부러 합치지 않았습니다.**
@@ -293,19 +293,24 @@ python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx
 신규 로직은 **`vcore/`** 에서 개발하고, `tests_vector/`로 레퍼런스 등가성을 유지합니다.
 자세한 정책: **[FREEZE_NOTICE.md](FREEZE_NOTICE.md)**
 
-## 📐 계산 특성 — 정률법 마지막 달 폭증
+## 📐 계산 특성 — 정률법 종료해
 
-정률법은 *잔액 × 상각률*로 상각하므로 내용연수 종료 시점에 잔액 약 5%(예: 5년 0.451 →
-(1−0.451)⁵ ≈ 5.0%)가 남고, 이를 마지막 달에 비망가 1,000원으로 일괄 정리하면서 폭증합니다.
-결함이 아니라 별표4 정률법 + 비망가 1,000원의 자연 결과이며, 더존의 "장부가 < 취득가 5% →
-전액상각" 규칙과 **수학적으로 등가**입니다(실측 1원 일치).
+정률법은 *잔액 × 상각률*로 상각하므로 잔액이 0에 닿지 않고 약 5%가 남습니다(예: 5년 0.451 →
+(1−0.451)⁵ ≈ 5.0%). 시행령 §26⑥은 이 잔존가액을 **미상각잔액이 처음 취득가액의 5% 이하가 되는
+사업연도**의 상각범위액에 가산하게 합니다. 엔진은 그 해(5% 이하 해가 오기 전에 내용연수가 끝나면
+내용연수 종료해)를 종료해로 보고, 비망가 1,000원을 남긴 잔액 전부를 그해 상각액으로 확정한 뒤
+월할 균등 배분합니다 — 마지막 달에 몰아넣지 않습니다([docs/ROUNDING_POLICY.md](docs/ROUNDING_POLICY.md)).
 
-**예시** (cost 1억, 5년, 정률):
+5% 교차 해는 대부분 내용연수 종료해와 같지만, 종료해가 짧은 꼬리인 경우(예: 20년 자산을 사업연도
+둘째 달에 취득 → 종료해 1개월) 그 직전 해가 됩니다. 2~60년 × 취득월 1~12 = 708조합 중 139개가
+이 경우입니다(`tests_vector/test_declining_five_percent_statute.py`).
 
-| 월 | 월 감가상각비 | 장부가 |
-|---|---:|---:|
-| 2026-11 | 341,416 | 5,328,681 |
-| **2026-12 (마지막)** | **5,327,681** | **1,000** |
+**예시** (cost 1억, 5년, 정률, 2026-01 취득):
+
+| 회계연도 | 기초장부가 | 상각액 | 월별 |
+|---|---:|---:|---|
+| 2029 | 16,546,915 | 7,462,658 | 621,888 × 11 + 621,890 |
+| **2030 (종료해)** | 9,084,257 | **9,083,257** | 756,938 × 11 + 756,939 |
 
 ## 📚 문서
 
@@ -316,7 +321,7 @@ python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx
 
 ## 📄 라이선스
 
-Private Use. 자세한 내용은 [LICENSE](LICENSE) · [NOTICE](NOTICE) 참조.
+Apache License 2.0. 자세한 내용은 [LICENSE](LICENSE) · [NOTICE](NOTICE) 참조.
 
 ## 🙏 Credits
 

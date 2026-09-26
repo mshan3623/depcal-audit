@@ -499,7 +499,8 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
                 if dep_complete_month < 12 and current_year == dep_complete_year:
                     current_year_months = dep_complete_month
             yearly_dep = yearly_declining(sep_book, sep_rate, current_year_months)   # 정수 산술 (2026-09-03)
-            if (not disposal_date) and current_year == dep_complete_year:
+            crosses = (sep_book - min(yearly_dep, remaining_depreciable)) * 20 <= cost   # §26⑥ 5% 교차
+            if (not disposal_date) and (current_year == dep_complete_year or crosses):
                 dep_amount = remaining_depreciable                # 종료해: 잔액 전액(5% 잔재 정리)
             else:
                 dep_amount = min(yearly_dep, remaining_depreciable)
@@ -560,6 +561,21 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
         dep_end_year = depreciation_complete_year
         dep_end_month = depreciation_complete_month
 
+        # 시행령 §26⑥: 잔존가액(5%)은 미상각잔액이 최초로 취득가액의 5% 이하가 되는 사업연도에
+        # 가산한다. 종료해가 짧은 꼬리면(20년·둘째 달 취득 → 1개월) 그 직전 해에 이미 5% 이하가
+        # 되므로, 그 해 마지막 달을 상각 종료월로 당긴다(vcore declining_balance.month_counts와 동일).
+        from .dep_common import get_fiscal_year, get_fiscal_year_dep_window
+        sim_book = cost
+        last_fy = get_fiscal_year(dep_end_year, dep_end_month, fiscal_year_end_month)
+        for fy in range(get_fiscal_year(start_year, start_month, fiscal_year_end_month), last_fy):
+            fy_months, _, _, fy_last_y, fy_last_m = get_fiscal_year_dep_window(
+                fy, fiscal_year_end_month, start_year, start_month, dep_end_year, dep_end_month)
+            sim_book -= min(yearly_declining(sim_book, depreciation_rate, fy_months),
+                            max(0, sim_book - memorandum_value))
+            if sim_book * 20 <= cost:
+                dep_end_year, dep_end_month = fy_last_y, fy_last_m
+                break
+
         # 루프 종료 경계 (양도가 있으면 양도 직전월과 내용연수 종료 중 이른 시점)
         if disposal_date:
             # 더존식: 양도월 포함(양도월까지 상각, 익월부터 중단)
@@ -592,7 +608,6 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
         for month_count in range(total_depreciation_months):
             year_offset = (current_year - start_year)
 
-            from .dep_common import get_fiscal_year, get_fiscal_year_dep_window
             current_fy = get_fiscal_year(current_year, current_month, fiscal_year_end_month)
 
             # 해당 회계연도 묶음 초기화 (처음 만나는 fiscal year)

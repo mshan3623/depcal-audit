@@ -35,7 +35,7 @@ pip install -e ".[test]"
 
 ```bash
 depverify --help
-pytest -q          # 1,099 passed, 7 skipped 가 정상 (skip은 원저자 로컬 데이터 전용 테스트)
+pytest -q          # failed 0 이면 정상. skip 몇 건은 원저자 로컬 데이터·poppler 미설치 때문
 ```
 
 `pytest`가 통과하면 **엔진이 손계산 골든값·법령 별표4 상각률표와 일치**한다는 뜻입니다.

@@ -10,10 +10,11 @@ dep_vector — 표준형 월별 빌더 (공유)
 """
 
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from vcore.straight_line import annual_depreciation
-from vcore.rate_table import check_life_years, declining_balance_amount
+from vcore.declining_balance import month_counts as db_month_counts
+from vcore.rate_table import declining_balance_amount
 from vcore.projection import (
     FiscalYearRow, MEMORANDUM, capped_yearly, standard_month_counts, first_fiscal_year,
 )
@@ -28,9 +29,14 @@ class Month:
 
 
 def standard_monthly(cost: int, life_years: int, acq_month: int,
-                     yearly_nonfinal: Callable[[int, int], int]) -> List[Month]:
-    """12월 결산 표준형 월별 벡터 (이벤트 없음). yearly_nonfinal(기초장부가, 개월)로 방법 주입."""
-    counts = standard_month_counts(acq_month, life_years)
+                     yearly_nonfinal: Callable[[int, int], int],
+                     counts: Optional[List[int]] = None) -> List[Month]:
+    """12월 결산 표준형 월별 벡터 (이벤트 없음). yearly_nonfinal(기초장부가, 개월)로 방법 주입.
+
+    counts = 회계연도별 개월수. 기본은 내용연수 전체, 정률은 5% 교차 해에서 끊은 것을 넘긴다.
+    """
+    if counts is None:
+        counts = standard_month_counts(acq_month, life_years)
     months: List[Month] = []
     acc = 0
     last_fy = len(counts) - 1
@@ -60,6 +66,10 @@ def settle_terminal_evenly(months: List[Month], start: int = 0) -> List[Month]:
     연수(6년 0.166×6=0.996, 7년 0.142×7=0.994, 14년 등)에는 종료해 잔재가 남으므로 같은
     원칙으로 균등 배분한다 — 무변(no-op)인 것은 잔재가 0인 연수뿐이다. 단 절단 경로(전체양도,
     미완료 구간)에는 적용하지 않는다.
+
+    주의: §26⑥의 '가산'은 **정률법** 잔존가액 규정이다. 정액법은 같은 항 본문대로 잔존가액이
+    0이고 매년 상각범위액은 취득가액 × 상각률이라, 종료해에 잔재를 흡수하는 것 자체는 §26⑥이
+    근거가 아닌 엔진 규약이다(문언상 잔재는 다음 해 몫 — 외부 평가 2026-09-26 ②, 결정 대기).
 
     `start` = 마지막 이벤트(capex 증가월·부분양도 익월)의 상대 인덱스. 균등화는 종료해 중
     **start 이후 구간**에만 한다 — 미래의 사건은 지나간 달을 바꾸지 않는다. 종전에는 종료해
@@ -139,9 +149,9 @@ def sl_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
 
 def db_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
     """정률법 표준형 월별. 연 산식은 rate_table.declining_balance_amount(정수 산술) 하나."""
-    check_life_years(life_years)                      # 범위 가드 = rate_table 단일 관문(상단 발화)
     return standard_monthly(cost, life_years, acq_month,
-                            lambda book, miy: declining_balance_amount(book, life_years, miy))
+                            lambda book, miy: declining_balance_amount(book, life_years, miy),
+                            db_month_counts(cost, life_years, acq_month))   # 범위 가드 포함
 
 
 def group(months: List[Month], fy0: int) -> List[FiscalYearRow]:

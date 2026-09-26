@@ -96,3 +96,18 @@ def test_recalculation_says_match_while_compliance_flags_it():
 
     assert verify_all([car]).counts()["일치"] == 1      # 재계산은 통과시킨다
     assert check_vehicles([car])                        # 적법성은 잡아낸다
+
+
+def test_car_acquired_before_2016_is_not_flagged():
+    """5년 정액 강제는 2016.1.1 이후 개시 사업연도 취득분부터 — 그 전 정률 차량은 종전 방법이 적법."""
+    assert check_vehicles([_car(acq_y=2015, acq_m=12, life=8)]) == []
+
+
+def test_car_acquired_in_2016_is_flagged():
+    assert len(check_vehicles([_car(acq_y=2016, acq_m=1)])) == 1
+
+
+def test_pre_2016_car_still_gets_deduction_cap_check():
+    """손금 한도(§27조의2 ③)는 취득연도와 별개로 본다 — 요건 점검만 빠진다."""
+    f = check_vehicles([_car(acq_y=2015, exp_dep=ANNUAL_DEDUCTION_CAP + 1)])
+    assert [x.issue for x in f] == ["감가상각비 손금 한도 초과 가능"]

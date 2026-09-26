@@ -77,7 +77,7 @@ def collect(ledger_path: str, fy: int, fye: int, tolerance: int,
         "결산월": f"{fye}월",
         "시트": str(sheet),
         "컬럼 매핑": os.path.basename(mapping_path) if mapping_path else "더존 표준 레이아웃",
-        "상각률 근거": "법인세법 시행령 [별표 4] (vcore/rate_table.py — 법령 PDF 대조 고정)",
+        "상각률 근거": "법인세법 시행규칙 [별표 4] (vcore/rate_table.py — 법령 PDF 대조 고정)",
         "허용차 설정": (f"±{tolerance:,}원 (감사인 설정)" if tolerance
                         else "0원 — 원단위 완전일치"),
     }
