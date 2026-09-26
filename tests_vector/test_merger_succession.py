@@ -6,7 +6,7 @@
 """
 import pytest
 
-from vcore.disposal import schedule_full_disposal
+from vcore.disposal import schedule_extinction
 from vcore.separate_asset import schedule_merger_succession, schedule_separate_asset
 from vcore.straight_line import annual_depreciation, schedule
 
@@ -16,7 +16,7 @@ COST, LIFE, ACQ_Y, ACQ_M = 12_000_000, 5, 2024, 5      # 연 상각 2,400,000
 def _split(merger_year, merger_month, cost=COST, life=LIFE,
            acq_y=ACQ_Y, acq_m=ACQ_M):
     """(소멸법인 최종 회계연도 행, 존속법인 승계연도 행 리스트)."""
-    gone = schedule_full_disposal(cost, life, acq_y, acq_m, merger_year, merger_month, 12)
+    gone = schedule_extinction(cost, life, acq_y, acq_m, merger_year, merger_month, 12)
     last = gone[-1]
     kept = schedule_merger_succession(cost, life, acq_y, acq_m, last.accumulated,
                                       merger_year, merger_month, merger_year)

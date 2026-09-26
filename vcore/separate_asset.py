@@ -102,9 +102,9 @@ def schedule_merger_succession(cost: int, life_years: int, acq_year: int, acq_mo
                                declining: bool = False) -> List[FiscalYearRow]:
     """합병 존속법인이 승계한 자산의 회계연도 감가상각 — **합병등기월 다음 달부터**.
 
-    소멸법인은 합병등기월까지 상각한다(`disposal.schedule_full_disposal`의 양도월 포함
-    규칙과 동일). 존속법인이 등기월 다음 달부터 이어받으면 두 법인의 월수 합이 그해
-    12개월로 딱 맞는다.
+    소멸법인은 합병등기월까지 상각한다(`disposal.schedule_extinction` — 짧은 의제사업연도,
+    연 상각액 × 월수 ÷ 12). 존속법인이 등기월 다음 달부터 이어받으면 두 법인의 월수 합이
+    그해 12개월로 딱 맞는다(실무 확인: 존속법인은 등기월 다음 달부터 상각).
 
     시행령 문언(§26⑧⑨)을 그대로 적용하면 "1월 미만의 일수는 1월로 한다"가 양쪽에
     각각 걸려 등기월이 소멸·존속 두 법인에 중복 계산된다(등기 5/15 → 소멸 5개월 +

@@ -17,9 +17,11 @@ from typing import List
 from vcore import monthly
 from vcore.monthly import Month
 from vcore.projection import (
-    FiscalYearRow, standard_acq_month, first_fiscal_year,
+    FiscalYearRow, capped_yearly, standard_acq_month, first_fiscal_year,
     validate_asset_inputs,
 )
+from vcore.rate_table import declining_balance_amount
+from vcore.straight_line import annual_depreciation
 
 
 def months_to_disposal(acq_year: int, acq_month: int, disp_year: int, disp_month: int) -> int:
@@ -49,6 +51,59 @@ def _schedule_full_disposal(monthly_fn, cost, life_years, acq_year, acq_month,
                                       disp_year, disp_month, fiscal_end_month)
     fy0 = first_fiscal_year(acq_year, acq_month, fiscal_end_month)
     return monthly.group(truncated, fy0)
+
+
+def months_extinction(monthly_fn, yearly_fn, cost, life_years, acq_year, acq_month,
+                      end_year, end_month, fiscal_end_month):
+    """법인 소멸(합병·해산)로 사업연도가 end_month에 끝나는 경우의 월별 벡터.
+
+    자산 양도와 다르다. 양도는 12개월 사업연도 **중간**에 자산이 빠지는 것이라 월 base ×
+    양도월수로 끊지만(결산월 끝수 보정 미도달), 소멸법인의 마지막 의제사업연도(법 §8)는 그
+    자체가 **짧은 사업연도**다 — 상각범위액 = 연 상각액 × 그 월수 ÷ 12(시행령 §26⑧), 끝수는
+    그 사업연도의 마지막 달(등기월)이 흡수한다. 더존 실측(합병소멸 법인 2026-01~02, 정률 5건)이
+    5건 모두 이 값이고, 양도 경로(`schedule_full_disposal`)는 4건에서 1원 적었다.
+    월수는 역에 따라, 1월 미만은 1월(§26⑧) — end_month = 등기월(포함).
+    """
+    validate_asset_inputs(cost, acq_month, fiscal_end_month)
+    m_std = standard_acq_month(fiscal_end_month, acq_month)
+    d = months_to_disposal(acq_year, acq_month, end_year, end_month)
+    base = monthly_fn(cost, life_years, m_std)
+    if d >= len(base) - 1:                     # 그 전에 상각이 끝났다 — 짧은 사업연도 영향 없음
+        return base[:d + 1]
+    fy = base[d].fy_index
+    start = next(i for i, m in enumerate(base) if m.fy_index == fy)
+    n = d - start + 1                          # 마지막 사업연도 중 상각 월수
+    acc = base[start - 1].acc if start else 0
+    yearly = capped_yearly(cost - acc, n, yearly_fn)
+    per = yearly // n
+    out = list(base[:start])
+    for j in range(n):
+        amt = per + (yearly - per * n if j == n - 1 else 0)
+        acc += amt
+        out.append(Month(fy, amt, acc, cost - acc))
+    return out
+
+
+def schedule_extinction(cost: int, life_years: int, acq_year: int, acq_month: int,
+                        end_year: int, end_month: int,
+                        fiscal_end_month: int = 12) -> List[FiscalYearRow]:
+    """합병·해산 소멸법인의 정액법 상각표 — 마지막 행이 등기월에 끝나는 짧은 의제사업연도."""
+    annual = annual_depreciation(cost, life_years)
+    months = months_extinction(monthly.sl_monthly, lambda b, m: (annual * m) // 12,
+                               cost, life_years, acq_year, acq_month, end_year, end_month,
+                               fiscal_end_month)
+    return monthly.group(months, first_fiscal_year(acq_year, acq_month, fiscal_end_month))
+
+
+def schedule_extinction_declining(cost: int, life_years: int, acq_year: int, acq_month: int,
+                                  end_year: int, end_month: int,
+                                  fiscal_end_month: int = 12) -> List[FiscalYearRow]:
+    """합병·해산 소멸법인의 정률법 상각표 — 마지막 행이 등기월에 끝나는 짧은 의제사업연도."""
+    months = months_extinction(monthly.db_monthly,
+                               lambda b, m: declining_balance_amount(b, life_years, m),
+                               cost, life_years, acq_year, acq_month, end_year, end_month,
+                               fiscal_end_month)
+    return monthly.group(months, first_fiscal_year(acq_year, acq_month, fiscal_end_month))
 
 
 def schedule_full_disposal(cost: int, life_years: int, acq_year: int, acq_month: int,
