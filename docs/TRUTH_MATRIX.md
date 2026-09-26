@@ -113,7 +113,7 @@
   7·14년 71%·28년 50% 발화. 위 실측(A사 정액 5년·B사 정률 5년)이 전부 통과한 것은 5년율(0.2·
   0.451)이 우연히 float 정확 구간이기 때문 — **더존 실측은 별표4 59개 엔트리 중 1개만 덮는다.**
   3.6.0에서 산식을 1000분율 정수 산술(`rate_table.straight_line_annual`·`declining_balance_amount`)로
-  바꿨다. 단수 규칙(정액 4사5입·정률 절사)은 그대로다. 상세 `docs/audit_lattice_2026-09-03.md` G1·G2,
+  바꿨다. 단수 규칙(정액 4사5입·정률 절사)은 그대로다. 상세 `docs/audit_lattice_2026-09-03.md` (비공개 문서) G1·G2,
   회귀 가드 `tests_vector/test_integer_arithmetic_litmus.py`.
 
 ---

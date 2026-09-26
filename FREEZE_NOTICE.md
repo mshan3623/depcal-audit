@@ -99,7 +99,7 @@ core↔vcore 거울 1원 일치 복귀를 확인했다. 상세는 `CHANGELOG.md`
 거울도 눈이 멀어 있었다. `dep_common.annual_straight_line`·`yearly_declining`(1000분율 정수 산술,
 core 자체 float 리터럴에서 `round(rate × 1000)`으로 복원 — vcore 표와 데이터 비공유)을 신설해
 6곳을 교체. core 자체 회귀 무변화 확인 후 적용 — 상세는 `CHANGELOG.md` [3.6.0],
-배경은 `docs/audit_lattice_2026-09-03.md` G1·G2.
+배경은 `docs/audit_lattice_2026-09-03.md` (비공개 문서) G1·G2.
 
 같은 날 두 번째 수정(감사 G28, `depreciation_engine.py`): 종료해 잔재 균등 재배분
 (`_settle_terminal_evenly_schedule`)이 이벤트(capex·부분양도) 경로에만 걸려 있어, 단순 스케줄에서는
@@ -139,7 +139,7 @@ core 자체 float 리터럴에서 `round(rate × 1000)`으로 복원 — vcore �
 
 ### 신규 spec / 문서
 
-- `dep_cal/specs/fiscal_period_first_class_spec.md` — 대원칙, 책임 분리, 한국 관행, yearly_info 재구성, Acceptance Criteria, 회귀 시나리오 F-FP-01~10.
+- `dep_cal/specs/fiscal_period_first_class_spec.md` (비공개 문서) — 대원칙, 책임 분리, 한국 관행, yearly_info 재구성, Acceptance Criteria, 회귀 시나리오 F-FP-01~10.
 
 ### 테스트
 
@@ -172,7 +172,7 @@ core 자체 float 리터럴에서 `round(rate × 1000)`으로 복원 — vcore �
 
 ### 문서
 
-- **신규 spec**: `dep_cal/specs/monthly_settlement_preservation_spec.md` — 대원칙 + 적용 범위 + Acceptance Criteria.
+- **신규 spec**: `dep_cal/specs/monthly_settlement_preservation_spec.md` (비공개 문서) — 대원칙 + 적용 범위 + Acceptance Criteria.
 - **신규 메모리 문서**: 부분양도 시 감가상각 종료 자산의 비망가 처리 결정 근거.
 - **정률법 마지막 달 폭증 문서화**: README + 코드 주석 (법령 5% 잔재 + 비망가 1,000원의 수학적 불가피).
 

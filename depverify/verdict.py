@@ -129,7 +129,7 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
         #   3개사 이상이 되면 그 시점에 상한을 재실측한다 — 3분할 자산이 하나라도 나오면
         #   2로는 부족하다(자녀수−1 = 2가 아니라 그 이상). 표본 확대 전까지 이 값을
         #   올리지 말 것: 근거 없이 넓힌 허용목록은 차이를 통과시키는 구멍이 된다.
-        #   추적: docs/IMPROVEMENT_PLAN_2026-09-05.md 트랙 B2(실대장 표본 5~10개사).
+        #   추적: docs/IMPROVEMENT_PLAN_2026-09-05.md (비공개 문서) 트랙 B2(실대장 표본 5~10개사).
         # d_dep == carry_gap 은 두 정산식에서 따라오는 항등식(원인은 전기, 당기 아님).
         prev_acc = a["prev_acc"]
         carry_gap = prev_acc - (cur.accumulated - cur.depreciation)   # 대장 − vcore

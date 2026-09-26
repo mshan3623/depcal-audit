@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   같은 3.6.0 라벨로 나가면 검증보고서의 엔진 버전으로 판본을 구분할 수 없었다(감사 M8) — 3.7.0으로 확정.
   pytest **1,640** 통과.
 - 🧾 **상각명세서(엑셀) 생성기를 vcore 벡터의 소비자로 정리** — 계산·판정을 생성기 안에서
-  두 번째로 하던 자리를 걷어냈다. `docs/IMPROVEMENT_PLAN_2026-09-05.md` Phase 1(T1) + 트랙 B1.
+  두 번째로 하던 자리를 걷어냈다. `docs/IMPROVEMENT_PLAN_2026-09-05.md` (비공개 문서) Phase 1(T1) + 트랙 B1.
   pytest **1,401** 통과·1 skip.
 
 ### Fixed
@@ -262,7 +262,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Status
 - 🔢 **연 상각액 산식을 float 곱셈에서 별표4 1000분율 정수 산술로 교체 (vcore + core 동반)**.
   전체 pytest **1,387** 통과·1 skip(시스템 python, 웹 테스트는 Flask 미설치) / venv **1,405** 통과.
-- `docs/audit_lattice_2026-09-03.md` 전수 감사(G1·G2)에서 출발한 변경이다. 2026-07-25 D8은 이
+- `docs/audit_lattice_2026-09-03.md` (비공개 문서) 전수 감사(G1·G2)에서 출발한 변경이다. 2026-07-25 D8은 이
   계열을 "10¹¹부터·실무 영향 없음"으로 닫았으나 스캔 범위(23,600조합)가 부족한 오판이었다.
 
 ### Fixed
@@ -354,7 +354,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Status
 - 🔧 **비망가 캡 결함 제거 + 연간 상각 로직 3중 구현 단일화**. 전체 pytest **853** 통과.
-- 📋 `docs/IMPROVEMENT_PLAN_2026-07-25_AUDIT.md` — 전체 정밀평가(D1~D7)와 개선계획 A/B/C/D.
+- 📋 `docs/IMPROVEMENT_PLAN_2026-07-25_AUDIT.md` (비공개 문서) — 전체 정밀평가(D1~D7)와 개선계획 A/B/C/D.
 - 이 버전에는 앞선 미기재 작업(`depverify` V1 일괄 검증 파이프라인, 정률 첫 실대장 검증)도
   같은 미배포 구간에 포함돼 있다.
 
@@ -492,7 +492,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **월별 정합 가드** `tests_vector/test_monthly_schedule.py` (128개): 월별 합계 == 연도별 표 (전 결산월×취득월).
 - **실데이터 회귀 가드** `tests_vector/test_real_ledger_a.py`: FY2022/2024/2025 더존 대장 대조 (xlsx 부재 환경은 skip).
 - `.gitignore` 신설 — pyc·pytest_cache·실고객 xlsx 추적 해제.
-- `docs/REPO_AUDIT_2026-06-11.md`: 저장소 종합 점검 보고서 (엔진 품질 실측·정리 후보·배포 전 체크리스트).
+- `docs/REPO_AUDIT_2026-06-11.md` (비공개 문서): 저장소 종합 점검 보고서 (엔진 품질 실측·정리 후보·배포 전 체크리스트).
 
 ### Fixed
 - **부분양도 경계 가드**: 양도 시점이 자연상각 종료 이후일 때 IndexError → 경계 클램프(자연 스케줄 유지). 실데이터에 실존한 케이스.
@@ -547,7 +547,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`dep_cal/tests/test_fiscal_period_view.py`** (17개): 헬퍼 단위 검증 + 비-12월 결산 schedule 생성 + extract_fiscal_period view + v2.2 분리자산 가드 ValueError. 3·6·9·1월 결산 스모크 시나리오 포함.
 
 ### Added (문서)
-- `dep_cal/specs/fiscal_period_first_class_spec.md`: 회계기간 1급 뷰 spec. 대원칙(자산은 회계기간을 모른다) + 책임 분리 + 한국 관행 표기 + 월할/결산월 잔재 보정 + yearly_info 재구성 + Acceptance Criteria + 회귀 시나리오 F-FP-01~10.
+- `dep_cal/specs/fiscal_period_first_class_spec.md` (비공개 문서): 회계기간 1급 뷰 spec. 대원칙(자산은 회계기간을 모른다) + 책임 분리 + 한국 관행 표기 + 월할/결산월 잔재 보정 + yearly_info 재구성 + Acceptance Criteria + 회귀 시나리오 F-FP-01~10.
 
 ### Deferred (v2.3 분리)
 - **분리자산 경로(`prior_accumulated`) fiscal year 일반화**: v2.1에서 정교하게 설계된 calendar year 가정이 깊이 박혀 있어 회귀 위험. 한국 실무 12월 결산이 분리자산의 99% 케이스라 영향 적음. v2.2 분리자산 경로는 `fiscal_year_end_month != 12` 호출 시 명시적 `ValueError` 발화 (v2.3 미지원 안내).
@@ -589,7 +589,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`dep_cal/tests/test_disposal_invariants.py`**: 매각·처분 invariant 회귀 84개 영구화 (parametrize 기반). 직전월 동등성 + 분배 무결성 + 잔존 비망가 + 종료월. 유·무형 × 전체/부분 × 자본적지출 유무 매트릭스 총망라. 단발 검증으로 놓친 결함(정률+자본적지출 분기 누락)을 즉시 표면화하는 활성 검증 도구로 기능.
 
 ### Added (문서)
-- `dep_cal/specs/monthly_settlement_preservation_spec.md`: 매각 월 결산 보존 대원칙 + 적용 범위 + Acceptance Criteria + 회귀 시나리오 (유·무형 통합).
+- `dep_cal/specs/monthly_settlement_preservation_spec.md` (비공개 문서): 매각 월 결산 보존 대원칙 + 적용 범위 + Acceptance Criteria + 회귀 시나리오 (유·무형 통합).
 - README "📐 계산 특성 / 정률법 마지막 달 폭증" 섹션 추가: 법령 5% 잔재 + 비망가 1,000원의 수학적 불가피성 설명 + 수치 예시.
 - 정률법 비망가 처리 코드 주석에 회계·수학적 근거 명시.
 

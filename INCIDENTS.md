@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|
 | INC-01 | 2026-07-02 | `round()` banker's rounding → x.500 자산 1원 오차 | 1차 (패턴 **원단위 산술**) | 구조 — `round_half_up` 단일화, core 동반 | `test_rounding_litmus` |
 | INC-02 | 2026-07-25 | 비망 캡 `0 < remaining < yearly` 판단이 3곳에 중복 | 1차 (패턴 **N중 구현**) | 구조 — `capped_yearly` 단일 관문 | `test_schedule_invariants` |
-| INC-03 | 2026-08-11 | 파서 2벌 → 같은 대장에서 거짓 일치 + 거짓 불일치 동시 발생 | 1차 (패턴 **판단 2벌**) | 구조 — `classify_asset` 1벌, 두 저장소가 공유 | `FITNESS_AUDIT_2026-08-11.md` §8-10 |
+| INC-03 | 2026-08-11 | 파서 2벌 → 같은 대장에서 거짓 일치 + 거짓 불일치 동시 발생 | 1차 (패턴 **판단 2벌**) | 구조 — `classify_asset` 1벌, 두 저장소가 공유 | `FITNESS_AUDIT_2026-08-11.md` (비공개 문서) §8-10 |
 | INC-04 | 2026-09-03 | float 상각률 곱셈이 정확한 정수 결과를 1원 하향 (정액 9연수·정률 8연수). 2026-07-25 D8이 "실무 영향 없음"으로 닫았던 오판 | **2차** (INC-01 계열) | 구조 — 별표4 1000분율 정수 산술 관문 2개 | `test_integer_arithmetic_litmus` (272건) |
 | INC-05 | 2026-09-03 | 엑셀 시트1 「처분 제거액」이 vcore와 다른 산식(직전월·`int()` 절사). 같은 파일 안에서 시트1↔시트3 불일치 | **2차** (INC-03 계열) | 구조 — `disposal.disposal_split` 1벌(3벌 통합) | `test_depreciation_scenarios.py::_assert_excel_matches_vcore` |
 | INC-06 | 2026-09-03 | 엑셀 연도별집계가 달력연도 / CLI 전체양도+capex가 부분양도로 오해석돼 양도 후 30개월 상각 지속 | 1차 (패턴 **생성기가 vcore 밖에서 재계산**) | 구조 — 생성기를 vcore 벡터의 소비자로, 전부양도 판정 `is_full_disposal` 1곳 | `test_scenario_13_non_december_fiscal_year_end`, `test_capex_full_disposal_encoded_as_original_cost_is_rejected` |
@@ -60,5 +60,5 @@
 
 - **실대장 표본 5~10개사** — 표 엔트리별 실측이 내용연수 5년 하나뿐이다. INC-04가 5년 **밖에서만**
   발화한 것이 이 빈칸의 결과다. 표본이 들어오면 7·9·14·41년 자산을 우선 대조한다.
-  (`docs/IMPROVEMENT_PLAN_2026-09-05.md` 트랙 B2)
+  (`docs/IMPROVEMENT_PLAN_2026-09-05.md` (비공개 문서) 트랙 B2)
 - **INC-11 판정** — 위 표본이 확보되면 그 자리에서 결정한다.

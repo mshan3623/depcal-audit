@@ -335,7 +335,7 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
         # 무형도 유형 정액 함수를 재사용하므로 정액·정률과 동일하게 종료해 균등 재배분한다.
         # 2026-09-03: 단순 스케줄(이벤트 없음)에도 확대 — 2026-06-13 "정액·정률 동일 원칙"
         # 결정이 정액에 미적용이라 별표4율 × n ≠ 1인 연수(6·7·14년 등)의 잔재를 12월에
-        # 몰아넣고 있었다(vcore는 균등). docs/audit_lattice_2026-09-03.md G28.
+        # 몰아넣고 있었다(vcore는 균등). docs/audit_lattice_2026-09-03.md (비공개 문서) G28.
         if not has_prior \
                 and financials.method in (DepreciationMethod.STRAIGHT_LINE,
                                           DepreciationMethod.DECLINING_BALANCE,
