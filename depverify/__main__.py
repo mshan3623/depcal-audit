@@ -11,7 +11,7 @@ import sys
 
 from depverify.compliance import check_vehicles, summary_lines
 from depverify.provenance import collect
-from depverify.reader import read_ledger
+from depverify.reader import read_ledger, tag_merger_succession
 from depverify.report import summary_text, write_xlsx
 from depverify.verdict import verify_all
 
@@ -48,7 +48,20 @@ def _main(argv=None) -> int:
                    help="감사인 허용차(원, 기본 0=원단위 완전일치). "
                         "범위 내 차이는 '허용차'로 별도 표기 — 일치로 뭉개지 않음")
     p.add_argument("--out", help="Excel 보고서 출력 경로 (기본: <입력>_검증보고서.xlsx)")
+    p.add_argument("--merger-registration", metavar="YYYY-MM",
+                   help="합병 등기월 — 승계자산을 등기월 다음 달부터 상각 기준으로 대조(--merger-prefix와 함께)")
+    p.add_argument("--merger-prefix", metavar="접두",
+                   help="승계자산 자산명 접두(예: \"(소멸법인)\") — 이 접두로 시작하는 행만 승계자산")
     args = p.parse_args(argv)
+
+    merger = None
+    if bool(args.merger_registration) != bool(args.merger_prefix):
+        p.error("--merger-registration과 --merger-prefix는 함께 지정하세요")
+    if args.merger_registration:
+        m = re.fullmatch(r"(\d{4})-(\d{1,2})", args.merger_registration.strip())
+        if not m or not 1 <= int(m.group(2)) <= 12:
+            p.error(f"--merger-registration은 YYYY-MM 형식이어야 합니다 ({args.merger_registration})")
+        merger = (int(m.group(1)), int(m.group(2)))
 
     fy = args.fy or _infer_fy(args.xlsx)
     if fy is None:
@@ -77,11 +90,24 @@ def _main(argv=None) -> int:
         print(f"오류: {e}", file=sys.stderr)
         return 2
 
+    if merger:
+        n = tag_merger_succession(assets, args.merger_prefix, *merger)
+        if n == 0:
+            # 접두 오타일 수 있다 — 조용히 무시하면 승계 판정이 꺼진 채 '일치'가 나온다
+            print(f"오류: 자산명이 '{args.merger_prefix}'로 시작하는 행이 없습니다 "
+                  f"(--merger-prefix 확인)", file=sys.stderr)
+            return 2
+        print(f"[합병 승계] 등기 {merger[0]}-{merger[1]:02d} · 접두 '{args.merger_prefix}' {n}건 — "
+              f"등기월 다음 달부터 상각 기준으로 대조\n")
+
     result = verify_all(assets, structural_skips=structural, unreadable=unreadable,
                         tolerance=args.tolerance)
     # 출처 정보는 판정 직후 수집한다 — 보고서와 stdout이 같은 값을 쓴다.
     meta = collect(args.xlsx, fy, args.fye, args.tolerance,
                    sheet=sheet, mapping_path=args.mapping)
+    if merger:                             # 재현성 — 같은 대장도 이 설정에 따라 판정이 달라진다
+        meta["합병 승계"] = (f"등기 {merger[0]}-{merger[1]:02d}, 접두 '{args.merger_prefix}' "
+                         f"— 등기월 다음 달부터 상각")
 
     # 완전성 대사를 요약 맨 위에 올린다 — 자산행이 통째로 빠졌다면 아래의 '일치 N건'은
     # 빠진 행을 세지 않은 숫자다. 판정 건수보다 먼저 읽혀야 한다(감사 G11).

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.4] - 2026-10-14
+
+### Status
+- depverify 합병 승계 판정(사용자 결정) — 10-14 감사의 사용자 결정 항목 전부 반영. pytest **4,328** 통과.
+
+### Added
+- **depverify 합병 승계자산 판정** `--merger-registration YYYY-MM --merger-prefix 접두` (INC-23, 사용자 결정
+  2026-10-14) — 종전엔 승계자산도 대장 기재 월수(12)를 믿어 등기월 전 1~2월 이중상각을 '일치'로 판정했다
+  (표본 법인 2026 대장 5건). 대장만으로는 승계자산이 존속법인 자산과 구별되지 않아 사용자가 등기월과
+  자산명 접두를 지정한다(접두가 0건이면 exit 2). 합병연도 기대값 = 전기말누계 + 소멸법인 최종
+  의제사업연도분(`schedule_extinction`) → 등기월 다음 달부터 `schedule_merger_succession`. 승계자산의
+  양도·개발비는 검증불능. 보고서 재현 정보에 합병 설정 기록, 고지 문구 정정(소멸법인 최종기는 이 도구가
+  짧은 사업연도로 계산하지 않음). 표본 대장: 5건 '차이'(MX95 Δ당기상각 −917,182 = 손계산 일치).
+
 ## [3.8.3] - 2026-10-14
 
 ### Status

@@ -26,7 +26,9 @@ from typing import List, Optional
 
 from depverify.reader import is_development_cost
 from vcore.declining_balance import schedule as db_schedule
-from vcore.disposal import schedule_full_disposal, schedule_full_disposal_declining
+from vcore.disposal import (schedule_extinction, schedule_extinction_declining,
+                            schedule_full_disposal, schedule_full_disposal_declining)
+from vcore.separate_asset import schedule_merger_succession
 from vcore.intangible import (schedule_development_cost,
                               schedule_full_disposal_development_cost)
 from vcore.straight_line import schedule as sl_schedule
@@ -40,6 +42,27 @@ class Verdict:
     d_bk: int = 0                   # Δ장부가
     reason: str = ""                # 검증불능 사유 코드
     note: str = ""                  # 허용차 등 비고
+
+
+def _merger_prior(a: dict, merger: tuple, declining: bool, fye: int) -> int:
+    """존속법인이 승계하는 누계. 합병연도면 전기말누계(소멸법인 직전 사업연도 말) + 소멸법인
+    최종 의제사업연도분(그 사업연도 개시~등기월, §26⑧ 짧은 사업연도 — schedule_extinction).
+    합병 다음 해부터는 대장의 전기말누계(존속법인 장부)가 곧 기초다."""
+    my, mm = merger
+    if a["fy"] != my:
+        return a["prev_acc"]
+    fn = schedule_extinction_declining if declining else schedule_extinction
+    ext = fn(a["cost"], a["life"], a["acq_y"], a["acq_m"], my, mm, fye)
+    last = ext[-1] if ext else None
+    return a["prev_acc"] + (last.depreciation if last and last.fiscal_year == a["fy"] else 0)
+
+
+def _succession_schedule(a: dict, merger: tuple, declining: bool, fye: int):
+    """합병 승계자산 당기 스케줄 — 등기월 다음 달부터(사용자 결정 2026-08-27, INC-23)."""
+    my, mm = merger
+    return schedule_merger_succession(a["cost"], a["life"], a["acq_y"], a["acq_m"],
+                                      _merger_prior(a, merger, declining, fye), my, mm,
+                                      a["fy"], fye, declining)
 
 
 def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
@@ -61,8 +84,15 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
     # 판정은 reader.is_development_cost 한 곳(무형 사전과 같은 정규화 키, 감사 M3).
     development_cost = intang and is_development_cost(a.get("account"))
 
+    merger = a.get("merger")
+    if merger and (disposed or development_cost):
+        return Verdict("검증불능", reason="스코프외-합병승계 자산의 " + ("양도" if disposed else "개발비")
+                       + "(재계산 규칙 미확립)")
+
     try:
-        if development_cost and disposed:
+        if merger:
+            sch = _succession_schedule(a, merger, declining, fye)
+        elif development_cost and disposed:
             sch = schedule_full_disposal_development_cost(cost, life, a["acq_y"], a["acq_m"],
                                                           a["disp_y"], a["disp_m"], fye)
         elif development_cost:
@@ -78,7 +108,12 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
 
     cur = next((x for x in sch if x.fiscal_year == fy), None)
     exp_dep, exp_acc, exp_bk = a["exp_dep"], a["exp_acc"], a["exp_bk"]
-    if cur is None:
+    if merger and cur is None:
+        # 등기월 = 결산월 — 그해는 소멸법인이 전부 상각, 존속법인 당기 0. 누계는 승계분 그대로.
+        prior = _merger_prior(a, merger, declining, fye)
+        d_dep, d_bk = -exp_dep, (cost - prior) - exp_bk
+        d_acc = -exp_acc if intang else prior - exp_acc
+    elif cur is None:
         # 상각 종료 후 계속 보유: 더존은 비망 1,000 유지 표시 (B사 대장 실측,
         # 정액·정률 동일) — 당기 0 / 누계 취득가-1,000 / 장부 1,000
         if (not disposed and not intang

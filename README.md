@@ -273,6 +273,8 @@ python tests/test_depreciation_scenarios.py # 레거시 엔진 12/12 (oracle 스
 ```bash
 python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx]
 # 종료코드: 0 = 전 자산 일치, 1 = 차이/검증불능 존재, 2 = 실행 오류
+# 합병 존속법인 대장: 승계자산을 등기월 다음 달부터 상각 기준으로 대조
+python -m depverify <대장.xlsx> --fy 2026 --merger-registration 2026-02 --merger-prefix "(소멸법인)"
 ```
 
 > **자매 앱 `../dep_verify`도 현역입니다** — 더존 출력물을 파싱→표준스키마화해 본 엔진과의

@@ -285,6 +285,21 @@ def _grand_total_label(row, cols) -> Optional[str]:
     return None
 
 
+def tag_merger_succession(assets: List[dict], prefix: str, year: int, month: int) -> int:
+    """합병 승계자산 표시 — 자산명이 `prefix`로 시작하는 행에 등기 (연, 월)을 붙인다. 붙인 건수.
+
+    대장만으로는 승계자산이 존속법인 자산과 구별되지 않는다(둘 다 이월자산 모양, '변동' 칸 공란).
+    그래서 사용자가 등기월과 접두를 지정하고 도구는 추측하지 않는다(사용자 결정 2026-10-14).
+    종전엔 대장 기재 월수(12)를 그대로 믿어 1~2월 이중상각을 '일치'로 판정했다(INC-23).
+    """
+    n = 0
+    for a in assets:
+        if str(a.get("asset_name") or "").startswith(prefix):
+            a["merger"] = (year, month)
+            n += 1
+    return n
+
+
 class ControlTotal:
     """대장 합계행 대사 결과 — 완전성의 유일한 독립 신호 (감사 G11).
 
