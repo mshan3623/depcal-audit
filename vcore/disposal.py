@@ -17,7 +17,7 @@ from typing import List
 from vcore import monthly
 from vcore.monthly import Month
 from vcore.projection import (
-    FiscalYearRow, capped_yearly, standard_acq_month, first_fiscal_year,
+    FiscalYearRow, MEMORANDUM, capped_yearly, standard_acq_month, first_fiscal_year,
     validate_asset_inputs,
 )
 from vcore.rate_table import declining_balance_amount
@@ -75,6 +75,11 @@ def months_extinction(monthly_fn, yearly_fn, cost, life_years, acq_year, acq_mon
     n = d - start + 1                          # 마지막 사업연도 중 상각 월수
     acc = base[start - 1].acc if start else 0
     yearly = capped_yearly(cost - acc, n, yearly_fn)
+    if monthly_fn is monthly.db_monthly and (cost - acc - yearly) * 20 <= cost:
+        # §26⑥: 미상각잔액이 처음 취득가액 5% 이하가 되는 사업연도에 잔존가액을 가산한다 —
+        # 의제사업연도도 사업연도다. 종전엔 짧은 해라고 판정을 건너뛰어 잔액이 존속법인으로
+        # 넘어갔다(1억·20년, 2039-11 소멸: 4.96% 잔존 → 귀속 법인이 바뀜. 감사 2026-10-14 M4).
+        yearly = cost - acc - MEMORANDUM
     per = yearly // n
     out = list(base[:start])
     for j in range(n):

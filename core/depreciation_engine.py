@@ -146,6 +146,26 @@ def _settle_terminal_evenly_schedule(schedule, fiscal_year_end_month, segment_st
     return schedule
 
 
+def _vcore_capex_partial(financials, fiscal_year_end_month: int, declining: bool, label: str):
+    """자본적지출 + 부분양도를 vcore 실행 경로(`monthly_events`)로 계산한다 — 정액·정률·무형 공용.
+
+    core의 2단계 루프는 이 조합에서 이탈이 확인돼 오라클 자격이 없다(정액 임의결산월 1원, 정률
+    음수 월상각, 무형 1~2원). 방법마다 같은 위임 블록을 따로 두던 것을 한 곳으로 모았다.
+    """
+    from vcore.monthly_schedule import monthly_events
+    ay, am, _ = parse_date_safe(financials.start_date)
+    iy, im, _ = parse_date_safe(financials.increase_date)
+    dy, dm, _ = parse_date_safe(financials.disposal_date)
+    cal = monthly_events(financials.cost, financials.life_in_years, ay, am,
+                         fiscal_year_end_month, declining=declining,
+                         inc=(financials.increase_amount, iy, im),
+                         disp=(financials.disposal_amount, dy, dm))
+    return [MonthlyDepreciation(
+        year=c.year, month=c.month, monthly_depreciation=c.amount,
+        accumulated_depreciation=c.acc, book_value=c.book,
+        calculation_method=f"{label}(증가+부분양도,vcore위임)") for c in cal]
+
+
 def calculate_depreciation_enhanced(financials: AssetFinancials,
                                   asset_info: AssetInfo,
                                   fiscal_year_end_month: int) -> DepreciationResult:
@@ -163,10 +183,13 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
         # 증가 여부 확인
         has_increase = (financials.increase_amount > 0 and financials.increase_date)
 
-        # 부분양도 여부 확인
+        # 부분양도 여부 확인 — 기준은 이벤트 시점 통합 취득원가(원가 + 증가액). vcore
+        # `disposal.is_full_disposal`과 같은 정의다. 종전엔 원래 원가와만 비교해 '원가 ≤ 양도액 <
+        # 원가+증가액'을 전부양도로 계산했다(감사 2026-09-23 하 — 판단 2벌).
+        basis = financials.cost + (financials.increase_amount if has_increase else 0)
         is_partial_disposal = (financials.disposal_amount > 0 and
                                financials.disposal_date and
-                               financials.disposal_amount < financials.cost)
+                               financials.disposal_amount < basis)
 
         if has_increase:
             logger.info(f"자본적지출 처리: 증가액={financials.increase_amount:,}원, 증가일={financials.increase_date}")
@@ -187,19 +210,9 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                 # 정액 capex+부분양도: core 2단계 루프(_calculate_with_increase 내부 양도 처리)는
                 # 임의결산월에서 종료해 부근 1원 이탈(2026-07-02 확인, 12월은 정상). core는 진실이
                 # 아니므로 검증된 vcore로 위임 — vcore 손계산 골든이 정답 보증
-                # (test_straight_line_golden_handcalc). 정률 동일 경로(아래)와 대칭.
-                from vcore.monthly_schedule import monthly_events
-                ay, am, _ = parse_date_safe(financials.start_date)
-                iy, im, _ = parse_date_safe(financials.increase_date)
-                dy, dm, _ = parse_date_safe(financials.disposal_date)
-                cal = monthly_events(financials.cost, financials.life_in_years, ay, am,
-                                     fiscal_year_end_month, declining=False,
-                                     inc=(financials.increase_amount, iy, im),
-                                     disp=(financials.disposal_amount, dy, dm))
-                schedule = [MonthlyDepreciation(
-                    year=c.year, month=c.month, monthly_depreciation=c.amount,
-                    accumulated_depreciation=c.acc, book_value=c.book,
-                    calculation_method="정액법(증가+부분양도,vcore위임)") for c in cal]
+                # (test_straight_line_golden_handcalc). 정률·무형 동일 경로와 같은 헬퍼.
+                schedule = _vcore_capex_partial(financials, fiscal_year_end_month, declining=False,
+                                                label="정액법")
             elif has_increase and not has_prior:
                 # 자본적지출: Vector 논리 적용 (전기말 확정 없을 때만)
                 from .dep_tang_engine import _calculate_with_increase
@@ -220,7 +233,7 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                     fiscal_year_end_month=fiscal_year_end_month
                 )
             elif is_partial_disposal and has_prior:
-                # 부분양도 + 전기말 확정: 확정값에서 출발하여 당기 부분양도 처리
+                # 부분양도 + 전기말 확정: 거절(ValueError) — 판정은 _calculate_with_partial_disposal 한 곳
                 from .dep_tang_engine import _calculate_with_partial_disposal
                 schedule = _calculate_with_partial_disposal(
                     financials.cost, financials.life_in_years, financials.start_date,
@@ -246,18 +259,8 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                 # → 부분양도)을 1원 재현 불가(capex 연말보정 반영 차이). core 자체 산식은
                 # 음수 월상각 버그가 있어 oracle 자격 없음(2026-06-12 확인). 검증된 vcore로
                 # 위임 — vcore 손계산 골든이 정답 보증(test_declining_golden_handcalc).
-                from vcore.monthly_schedule import monthly_events
-                ay, am, _ = parse_date_safe(financials.start_date)
-                iy, im, _ = parse_date_safe(financials.increase_date)
-                dy, dm, _ = parse_date_safe(financials.disposal_date)
-                cal = monthly_events(financials.cost, financials.life_in_years, ay, am,
-                                     fiscal_year_end_month, declining=True,
-                                     inc=(financials.increase_amount, iy, im),
-                                     disp=(financials.disposal_amount, dy, dm))
-                schedule = [MonthlyDepreciation(
-                    year=c.year, month=c.month, monthly_depreciation=c.amount,
-                    accumulated_depreciation=c.acc, book_value=c.book,
-                    calculation_method="정률법(증가+부분양도,vcore위임)") for c in cal]
+                schedule = _vcore_capex_partial(financials, fiscal_year_end_month, declining=True,
+                                                label="정률법")
             elif has_increase and not has_prior:
                 # 자본적지출: Vector 논리 적용 (전기말 확정 없을 때만)
                 from .dep_tang_engine import _calculate_with_increase_declining
@@ -297,7 +300,12 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                     target_year=financials.target_year
                 )
         elif financials.method == DepreciationMethod.INTANGIBLE:
-            if has_increase and not has_prior:
+            if has_increase and is_partial_disposal and not has_prior:
+                # 무형 capex+부분양도 = 정액 capex+부분양도(무형은 별표4 정액). 정액과 같은 이유로
+                # vcore 위임 — 종전엔 아래 core 2단계 루프로 가서 1~2원 이탈(감사 2026-09-23 M7(b)).
+                schedule = _vcore_capex_partial(financials, fiscal_year_end_month, declining=False,
+                                                label="무형")
+            elif has_increase and not has_prior:
                 # 무형 capex = 별표4 정액 capex. core 무형 엔진은 별표4 미적용 + capex 분기
                 # 부재라 증가액이 누락된다. 무형 = 유형 정액(별표4)이고 직접상각은 표시 차이일
                 # 뿐 수치 동일하므로, 검증된 유형 정액 capex 함수를 그대로 재사용한다.
@@ -309,13 +317,16 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                     financials.disposal_date, financials.disposal_amount,
                     fiscal_year_end_month=fiscal_year_end_month
                 )
-            elif is_partial_disposal and not has_prior:
-                # 무형 부분양도 = 별표4 정액 부분양도. 검증된 유형 정액 함수 재사용.
+            elif is_partial_disposal:
+                # 무형 부분양도 = 별표4 정액 부분양도. 검증된 유형 정액 함수 재사용. 전기말 확정 누계가
+                # 있으면 그 함수가 거절한다 — 종전엔 아래 else로 빠져 **전부양도로** 조용히 계산됐다.
                 from .dep_tang_engine import _calculate_with_partial_disposal
                 schedule = _calculate_with_partial_disposal(
                     financials.cost, financials.life_in_years, financials.start_date,
                     financials.disposal_amount, financials.disposal_date,
                     financials.salvage_value, financials.memorandum_value,
+                    prior_accumulated=financials.prior_accumulated if has_prior else None,
+                    target_year=financials.target_year,
                     fiscal_year_end_month=fiscal_year_end_month
                 )
             else:
@@ -494,13 +505,18 @@ def convert_common_data_to_financials(common_data: Dict[str, Any]) -> Tuple[Asse
             conversion_log.append(f"✅ 무형자산 직접상각법 적용: {account_subject}")
         else:
             # 유형자산 처리
+            # 표기를 명시 목록으로 판정한다. 종전엔 '정률법' 부분일치가 아니면 전부 정액이라 '정률'·'DB'·
+            # 공란·오타가 조용히 정액으로 계산됐다(감사 2026-10-14 — 조용한 기본값). 모르는 표기는 거절.
             depreciation_method = str(common_data.get('depreciation_method', '')).strip()
-            if '정률법' in depreciation_method or 'declining' in depreciation_method.lower():
+            key = depreciation_method.lower().replace(' ', '')
+            if key in ('정률법', '정률', 'declining', 'declining_balance'):
                 method = DepreciationMethod.DECLINING_BALANCE
                 conversion_log.append(f"✅ 정률법 적용: {account_subject}")
-            else:
-                method = DepreciationMethod.STRAIGHT_LINE  
+            elif key in ('정액법', '정액', 'straight', 'straight_line'):
+                method = DepreciationMethod.STRAIGHT_LINE
                 conversion_log.append(f"✅ 정액법 적용: {account_subject}")
+            else:
+                raise ValueError(f"상각방법을 알 수 없습니다: '{depreciation_method}' (정액법/정률법)")
         
         # 4. 취득일자 처리
         start_date = str(common_data.get('acquisition_date', '')).strip()

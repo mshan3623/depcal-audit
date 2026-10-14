@@ -164,6 +164,10 @@ def _calculate_korean_straight_line_enhanced(cost: int, life_years: int,
             # 당기 상각비 계산
             yearly_dep = (annual_dep * current_year_months) // 12
             dep_amount = min(yearly_dep, remaining_depreciable)
+            if not disposal_date and current_year == dep_complete_year:
+                # 종료해: 잔재까지 흡수해 비망가로 끝낸다 — 전체 계산·vcore 분리자산과 같은 규칙.
+                # 종전엔 연상각액만 상각해 잔재(1억·3년: 99,000원)가 남았다(감사 2026-10-14).
+                dep_amount = remaining_depreciable
             
             # 월별 스케줄 생성
             accumulated = prior_accumulated
@@ -1695,11 +1699,8 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
         - 잔존비율 = 1 - 양도비율
         - 양도 직전월까지 보정 없음
         - 양도월부터 기존 Vector × 잔존비율
-        - prior_accumulated 지정 시: 확정 누적에서 출발하여 당기+부분양도 처리
     """
     logger.info(f"부분양도 처리 계산 시작: 취득원가={cost:,}원, 양도액={disposal_amount:,}원, 양도일={disposal_date}")
-    if prior_accumulated is not None:
-        logger.info(f"분리자산+부분양도 복합 처리: 전기말누적={prior_accumulated:,}원 기초")
 
     # 입력값 검증
     if disposal_amount <= 0:
@@ -1726,127 +1727,16 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
     # 주의: 이 함수는 정액법용입니다. 정률법은 별도 함수 필요
     logger.info(f"Step 1: 기존 Vector 계산 (양도 없이) - 정액법")
     
-    # 분리자산+부분양도 복합: prior_accumulated가 있으면 확정값 기초로 당기 계산
-    # v2.2: 12월 결산만 지원, 비-12월은 v2.3 예정
-    if prior_accumulated is not None and target_year is not None:
-        if fiscal_year_end_month != 12:
-            raise ValueError(
-                f"v2.2 분리자산+부분양도 경로는 12월 결산만 지원 "
-                f"(fiscal_year_end_month={fiscal_year_end_month}). 비-12월 결산 분리자산은 v2.3 예정."
-            )
-        # 확정 전기말누적에서 출발 → 당기 양도 직전월까지 상각 → 부분양도 처리
-        logger.info(f"분리자산 기초: prior_accumulated={prior_accumulated:,}, target_year={target_year}")
-        
-        # 정액법 상각률
-        if life_years in STRAIGHT_LINE_RATES:
-            rate = STRAIGHT_LINE_RATES[life_years]
-        else:
-            available = sorted([y for y in STRAIGHT_LINE_RATES.keys() if y <= life_years])
-            rate = STRAIGHT_LINE_RATES[available[-1]] if available else STRAIGHT_LINE_RATES[60]
-        
-        annual_dep = annual_straight_line(cost, rate)   # 정수 산술 (2026-09-03)
-        remaining_depreciable = cost - prior_accumulated - memorandum_value
-        
-        if remaining_depreciable <= 0:
-            logger.info(f"감가상각 완료 자산 (잔여상각액 {remaining_depreciable:,}원)")
-            return []
-        
-        # 더존식: 양도월 포함(양도월까지 당기 상각)
-        dp_prev_year, dp_prev_month = disposal_year, disposal_month
-
-        months_before_disposal = dp_prev_month  # 1월~양도월(포함)
-        yearly_dep_before = (annual_dep * months_before_disposal) // 12
-        dep_before = min(yearly_dep_before, remaining_depreciable)
-        
-        # 양도 전 월별 스케줄 생성
-        monthly_base = dep_before // months_before_disposal if months_before_disposal > 0 else 0
-        remainder = dep_before - (monthly_base * months_before_disposal)
-        
-        accumulated = prior_accumulated
-        schedule = []
-        
-        for m_idx in range(months_before_disposal):
-            month_num = m_idx + 1
-            is_last = (m_idx == months_before_disposal - 1)
-            m_amount = monthly_base + (remainder if is_last else 0)
-            accumulated += m_amount
-            book_value = cost - accumulated
-            
-            schedule.append(MonthlyDepreciation(
-                year=target_year, month=month_num,
-                monthly_depreciation=m_amount,
-                accumulated_depreciation=to_int(accumulated),
-                book_value=to_int(book_value),
-                calculation_method="한국세법정액법_분리자산",
-                is_partial_month=False, is_last_month=False
-            ))
-        
-        # 양도 시점에서 부분제거
-        disposal_ratio = disposal_amount / cost
-        remaining_ratio = 1.0 - disposal_ratio
-        
-        prev_acc = accumulated
-        prev_bv = cost - accumulated
-        
-        disposal_acc = disposal_amount * prev_acc // cost
-        current_accumulated = prev_acc - disposal_acc
-        remaining_cost = cost - disposal_amount
-        current_book_value = remaining_cost - current_accumulated
-        
-        # 반올림 오차 조정
-        if current_book_value + current_accumulated != remaining_cost:
-            current_accumulated = remaining_cost - current_book_value
-        
-        logger.info(f"부분양도 시점: 누적 {prev_acc:,} → 잔존누적 {current_accumulated:,}, 잔존BV {current_book_value:,}")
-        
-        # 양도 후: 잔존부분 계속 상각 (양도월~12월)
-        remaining_annual = annual_straight_line(remaining_cost, rate)   # 정수 산술 (2026-09-03)
-        months_after = 12 - dp_prev_month  # 양도월~12월
-        
-        # 내용연수 완료 확인
-        start_year, start_month, _ = parse_date_safe(start_date)
-        dep_complete_year = start_year + life_years
-        dep_complete_month = start_month - 1
-        if dep_complete_month == 0:
-            dep_complete_year -= 1
-            dep_complete_month = 12
-        
-        if target_year > dep_complete_year or (target_year == dep_complete_year and dp_prev_month >= dep_complete_month):
-            months_after = 0  # 내용연수 이미 종료
-        elif target_year == dep_complete_year:
-            months_after = min(months_after, dep_complete_month - dp_prev_month)
-        
-        remaining_depreciable_after = current_book_value - memorandum_value
-        
-        if months_after > 0 and remaining_depreciable_after > 0:
-            yearly_dep_after = (remaining_annual * months_after) // 12
-            dep_after = min(yearly_dep_after, remaining_depreciable_after)
-            monthly_after = dep_after // months_after if months_after > 0 else 0
-            remainder_after = dep_after - (monthly_after * months_after)
-            
-            for m_idx in range(months_after):
-                month_num = dp_prev_month + 1 + m_idx
-                is_last = (m_idx == months_after - 1)
-                
-                if is_last:
-                    m_amount = min(monthly_after + remainder_after, current_book_value - memorandum_value)
-                else:
-                    m_amount = monthly_after
-                
-                current_accumulated += m_amount
-                current_book_value -= m_amount
-                
-                schedule.append(MonthlyDepreciation(
-                    year=target_year, month=month_num,
-                    monthly_depreciation=m_amount,
-                    accumulated_depreciation=to_int(current_accumulated),
-                    book_value=to_int(current_book_value),
-                    calculation_method="정액법(분리+부분양도)",
-                    is_partial_month=False, is_last_month=(is_last and current_book_value <= memorandum_value)
-                ))
-        
-        logger.info(f"분리자산+부분양도 완료: {len(schedule)}개월, 최종BV={current_book_value:,}")
-        return schedule
+    # 분리자산(전기말 확정 누계) + 부분양도는 거절한다(감사 2026-10-14 T4). 이 경로는 월 벡터 대신
+    # 잔존원가 연상각액으로 따로 계산해, 확정 누계가 전체 계산과 같은데도 당기 값이 갈렸다 —
+    # 종료해 잔재 미흡수(59,000원), 그 밖의 해 1~3원, 양도 누계 절사(정본은 4사5입). vcore에는 대응
+    # 기능이 없고 실측 앵커도 없어 정답 규약이 확립되지 않은 조합이다. 정률(감사 G18-④)과 같이
+    # 그럴듯한 오답 대신 거절한다 — 오라클이 틀린 값을 내면 거울 스윕이 결함을 가린다.
+    # 무형 경로도 이 함수를 지난다(종전엔 무형 + 확정 누계 + 부분양도가 전부양도로 조용히 흘렀다).
+    if prior_accumulated is not None:
+        raise ValueError(
+            "전기말확정(prior_accumulated) + 부분양도 조합은 지원하지 않습니다 "
+            "— 정답 규약이 확립되지 않아 계산을 거절합니다")
     
     base_schedule = _calculate_korean_straight_line_enhanced(
         cost=cost,
