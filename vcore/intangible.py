@@ -48,12 +48,16 @@ DEVELOPMENT_COST_MAX_LIFE = 20
 
 
 def development_cost_annual(cost: int, life_years: int) -> int:
-    """개발비 연 상각액 = 4사5입(취득가액 ÷ 신고내용연수), 정수 산술."""
+    """개발비 연 상각액 = 절사(취득가액 ÷ 신고내용연수), 정수 산술.
+
+    끝수 규칙은 §26①6에 없다. 상각범위액을 넘지 않는 절사로 정했다(사용자 결정 2026-10-14) —
+    종전 4사5입은 2,912/18,240 조합에서 문언 비례값보다 1원 컸다. 끝수는 종료해가 흡수한다.
+    """
     if isinstance(life_years, bool) or not isinstance(life_years, int) \
             or not 1 <= life_years <= DEVELOPMENT_COST_MAX_LIFE:
         raise ValueError(f"개발비 내용연수는 1~{DEVELOPMENT_COST_MAX_LIFE}년입니다 "
                          f"(시행령 §26①6, life_years={life_years!r})")
-    return (2 * cost + life_years) // (2 * life_years)
+    return cost // life_years
 
 
 def dev_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:

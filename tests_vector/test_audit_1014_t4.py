@@ -107,10 +107,25 @@ def test_extinction_in_natural_final_month_is_the_natural_schedule():
             [(r.fiscal_year, r.depreciation, r.book_value) for r in natural]
 
 
-# M20: 개발비 연상각액 끝수 — 현 규약(4사5입) 고정. 끝수 규칙은 사용자 결정 ④ 대기(§26①6에 끝수 규정 없음).
-def test_development_cost_annual_rounds_half_up_current_rule():
+# M20: 개발비 연상각액 끝수 = 절사(사용자 결정 2026-10-14). §26①6에 끝수 규정이 없어 상각범위액을
+# 넘지 않는 쪽으로 정했다 — 4사5입은 2,912/18,240 조합에서 문언 비례값보다 1원 컸다. 끝수는 종료해가 흡수.
+def test_development_cost_annual_truncates():
     rows = intangible.schedule_development_cost(200_000_000, 3, 2026, 1)
-    assert rows[0].depreciation == 66_666_667          # 200,000,000 ÷ 3 = 66,666,666.67
+    assert rows[0].depreciation == 66_666_666          # 200,000,000 ÷ 3 = 66,666,666.67 → 절사
+    assert rows[-1].book_value == 1000 and sum(r.depreciation for r in rows) == 199_999_000
+
+
+def test_development_cost_never_exceeds_proportional_amount():
+    """연 상각액 ≤ 취득가액 × 경과월수 ÷ (내용연수 × 12) — 종료해 전까지 모든 해."""
+    bad = []
+    for cost in (10_000_001, 200_000_000, 123_456_789):
+        for life in range(1, 21):
+            for m in (1, 7):
+                rows = intangible.schedule_development_cost(cost, life, 2026, m)
+                for r in rows[:-1]:
+                    if r.depreciation * life * 12 > cost * r.months:
+                        bad.append((cost, life, m, r.fiscal_year, r.depreciation))
+    assert bad == []
 
 
 # M27: core 분리자산(전기말 누계로 당기만)도 5% 교차 해에 정리 — vcore 분리자산·전체계산과 같다.
