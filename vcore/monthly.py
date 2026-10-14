@@ -10,11 +10,11 @@ dep_vector — 표준형 월별 빌더 (공유)
 """
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from vcore.straight_line import annual_depreciation
 from vcore.declining_balance import month_counts as db_month_counts
-from vcore.rate_table import declining_balance_amount
+from vcore.rate_table import check_life_years, declining_balance_amount
 from vcore.projection import (
     FiscalYearRow, MEMORANDUM, capped_yearly, standard_month_counts, first_fiscal_year,
 )
@@ -152,6 +152,59 @@ def db_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
     return standard_monthly(cost, life_years, acq_month,
                             lambda book, miy: declining_balance_amount(book, life_years, miy),
                             db_month_counts(cost, life_years, acq_month))   # 범위 가드 포함
+
+
+def db_monthly_uncut(cost: int, life_years: int, acq_month: int) -> List[Month]:
+    """정률법 표준형 월별 — 5% 교차 절단 **전**(내용연수 전체). 이벤트 경로가 스케일할 base.
+
+    자본적지출·부분양도는 취득가액을 바꾸므로(시행령 §72⑤2) 5% 교차 해도 바뀐다. 원가로
+    이미 잘린 base(`db_monthly`)를 스케일하면, 증가로 커진 장부가가 통합 취득가액의 5%를
+    넘는데도 원가 기준 교차 해에서 일괄 정리된다(INC-18: 1억·20년 + 3천만 → FY2039
+    7,609,815, 정답은 FY2039 1,065,512·FY2040 정리). 교차 판정은 이벤트를 적용한 뒤
+    `cut_at_five_percent`가 이벤트 후 취득가액으로 다시 한다.
+    """
+    check_life_years(life_years)
+    return standard_monthly(cost, life_years, acq_month,
+                            lambda book, miy: declining_balance_amount(book, life_years, miy))
+
+
+def cut_at_five_percent(months: List[Month], bases: List[Tuple[int, int]]) -> List[Month]:
+    """§26⑥: 회계연도 말 미상각잔액이 **최초로** 그 시점 취득가액의 5% 이하가 되는 해에 정리.
+
+    bases = [(시작 인덱스, 그 달부터의 취득가액)] 오름차순 — 원가, 자본적지출 증가월부터
+    원가+증가액, 부분양도 익월부터 잔존 취득가액. 그 해 마지막 달이 잔액을 비망가까지 정리하고
+    이후 달은 없다. 내용연수 종료해는 판정 밖(이미 비망가 정리) — `month_counts`와 같은 규칙.
+    단일 구간 [(0, 원가)]이면 `db_monthly`와 같은 벡터다.
+    """
+    for i in range(len(months) - 1):
+        if months[i + 1].fy_index == months[i].fy_index:
+            continue                                     # 회계연도 말에서만 판정
+        basis = [b for start, b in bases if start <= i][-1]
+        m = months[i]
+        if m.book * 20 <= basis:                         # 미상각잔액 ≤ 취득가액 × 5% (정수 비교)
+            # 그 달 기초 장부가를 비망가까지 정리. 잔존분이 작아 이미 비망가 미만이면 더 내리지도
+            # 올리지도 않는다(`apply_ratio_from` 마지막 달 `max(0, book - 비망가)`와 같은 규칙).
+            before = m.book + m.amount
+            amount = max(0, before - MEMORANDUM)
+            return months[:i] + [Month(m.fy_index, amount, m.acc - m.amount + amount, before - amount)]
+    return months
+
+
+def event_bases(monthly_fn, cost: int, life_years: int, acq_month: int):
+    """이벤트 경로용 (자연종료 base, 스케일 base).
+
+    자연종료 base = 이벤트 없는 스케줄 — 이벤트가 상각 종료 **후**인지는 이것으로 판정한다
+    (이벤트 이전은 원가가 취득가액). 스케일 base = 정률은 절단 전 전체, 정액은 같은 것.
+    """
+    natural = monthly_fn(cost, life_years, acq_month)
+    if monthly_fn is db_monthly:
+        return natural, db_monthly_uncut(cost, life_years, acq_month)
+    return natural, natural
+
+
+def recut(monthly_fn, months: List[Month], bases: List[Tuple[int, int]]) -> List[Month]:
+    """이벤트 적용 후 정률 5% 교차를 이벤트 후 취득가액으로 다시 판정. 정액은 그대로."""
+    return cut_at_five_percent(months, bases) if monthly_fn is db_monthly else months
 
 
 def group(months: List[Month], fy0: int) -> List[FiscalYearRow]:

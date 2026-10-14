@@ -50,6 +50,20 @@ INTANGIBLE_ACCOUNTS = {
     "광업권", "어업권", "차지권", "임차권리금", "기타무형자산",
 }
 
+def account_key(account) -> str:
+    """계정과목 정규화 — 공백·괄호 주석 제거. 무형·개발비 판정은 전부 이 키로 한다.
+
+    reader(무형 사전 정확일치)와 verdict(`"개발비" in account` 부분일치)가 다른 기준을 써서
+    '개발비(무형)'이 첫해에 유형 별표4로 '일치'했다(감사 2026-10-14 M3 — 판단 2벌).
+    """
+    return re.sub(r"\s|\(.*?\)|（.*?）", "", str(account or ""))
+
+
+def is_development_cost(account) -> bool:
+    """개발비(시행령 §26①6 — 1/n 경과월수 비례) 계정인가. depverify의 유일한 판정 지점."""
+    return account_key(account) == "개발비"
+
+
 SUPPORTED_METHODS = {"정액법", "정률법"}
 
 # 컬럼이 없을 때 **무엇이 불가능해지는지**. 기존에는 8개만 검사해서, 빠진 컬럼이
@@ -153,7 +167,7 @@ def _carryover_cost(base: int, prev_acc: int, prev_book: Optional[int],
     사전은 폐기하지 않고 교차검증에 쓴다. 항등식과 사전이 어긋나면 한쪽을 조용히
     고르지 않고 검증불능으로 올린다 — 둘 중 무엇이 틀렸든 사람이 봐야 하는 행이다.
     """
-    by_name = account in INTANGIBLE_ACCOUNTS
+    by_name = account_key(account) in INTANGIBLE_ACCOUNTS
     if prev_book is None:
         # 항등식 불가(컬럼 부재/공백) → 사전 폴백 + 간접법 불변식 방어
         if by_name:
@@ -197,7 +211,14 @@ def classify_asset(base: int, prev_acc: int, prev_book: Optional[int], capex: in
     2차연도부터는 항등식이 판별을 넘겨받는다.
     """
     if base == 0 and capex > 0:
-        return account in INTANGIBLE_ACCOUNTS, capex, None
+        key = account_key(account)
+        # 당기신규는 계정과목이 무형·개발비의 유일한 신호다. 개발비는 첫해 금액부터 별표4와
+        # 갈리므로(1/n), 신호가 없거나 모호하면 고르지 않는다(감사 2026-10-14 M3).
+        if not key:
+            return None, None, "계정과목공란-당기신규(무형·개발비 판별 신호 없음)"
+        if "개발비" in key and key not in INTANGIBLE_ACCOUNTS:
+            return None, None, f"계정과목모호('{account}' — 개발비 여부 판별 불가, 미등록 계정)"
+        return key in INTANGIBLE_ACCOUNTS, capex, None
     return _carryover_cost(base, prev_acc, prev_book, account)
 
 
@@ -229,17 +250,39 @@ def _is_grand_total(label: str) -> bool:
             or (label.endswith(("합계", "총계")) and not label.endswith("소계")))
 
 
-def _ledger_amounts(row, cols) -> Optional[dict]:
-    """대장이 **표시한** (당기상각, 누계, 장부가). 판정 불능 행에도 통제합계 대사를 위해 읽는다."""
+def _ledger_amounts(row, cols, blank_is_zero: bool = False) -> Optional[dict]:
+    """대장이 **표시한** (당기상각, 누계, 장부가). 판정 불능 행에도 통제합계 대사를 위해 읽는다.
+
+    blank_is_zero — 합계행 전용. 더존 총계행은 합이 0인 열을 `''`로 쓴다(실대장 3개 실측). 이를
+    해석 실패로 보면 상각완료 자산만 남은 대장에서 합계행이 '없는' 것이 되어 게이트가 꺼졌다
+    (감사 2026-10-14 M1, INC-21). 자산행의 공란은 여전히 못 읽은 것이다.
+    """
     out = {}
     for key, label in (("exp_dep", "당기상각비범위액"),
                        ("exp_acc", "당기말상각누계액"),
                        ("exp_bk", "당기말장부가액")):
+        v = row.get(cols[key])
+        if blank_is_zero and _blank(v):
+            out[key] = 0
+            continue
         try:
-            out[key] = _int_cell(row.get(cols[key]), label)
+            out[key] = _int_cell(v, label)
         except (ValueError, TypeError):
             return None
     return out
+
+
+def _grand_total_label(row, cols) -> Optional[str]:
+    """구조행의 총계 라벨 — 자산명 칸을 먼저, 없으면 그 행의 다른 글자 칸에서 찾는다.
+
+    자산명 칸만 보면 헤더가 다르거나(자산명 열 부재) 라벨이 계정과목·Code 칸에 있는 대장에서
+    합계행이 '없는' 것이 되어 게이트가 꺼졌다(감사 2026-10-14 M2).
+    """
+    cells = [row.get(cols["asset_name"])] + [v for k, v in row.items() if k != cols["asset_name"]]
+    for v in cells:
+        if isinstance(v, str) and _is_grand_total(re.sub(r"\s", "", v)):
+            return re.sub(r"\s", "", v)
+    return None
 
 
 class ControlTotal:
@@ -255,8 +298,10 @@ class ControlTotal:
     """
 
     def __init__(self, control: Optional[dict], sums: dict, rows_summed: int,
-                 rows_unsummed: int):
+                 rows_unsummed: int, unparsed_label: Optional[str] = None):
         self.found = control is not None
+        # 합계행은 있는데 금액을 못 읽었다 — '없음'(대사 불가)과 달리 실패다(fail-closed).
+        self.unparsed_label = unparsed_label
         self.label = control["label"] if control else ""
         self.ledger = {k: control[k] for k in ("exp_dep", "exp_acc", "exp_bk")} if control else {}
         self.summed = sums
@@ -279,7 +324,14 @@ class ControlTotal:
 
     @property
     def status(self) -> str:
+        if self.unparsed_label is not None:
+            return "해석 불가"
         return "대사 불가" if not self.found else ("일치" if self.matched else "불일치")
+
+    @property
+    def failed(self) -> bool:
+        """종료코드 1 대상 — 불일치, 또는 합계행을 찾았는데 금액을 못 읽음. 합계행이 없는 것은 아니다."""
+        return self.unparsed_label is not None or (self.found and not self.matched)
 
     def line(self) -> str:
         """보고서용 한 줄 — 일치할 때도 말한다. 침묵은 '대사를 안 했다'와 구별되지 않는다."""
@@ -289,6 +341,9 @@ class ControlTotal:
         return self.message()
 
     def message(self) -> Optional[str]:
+        if self.unparsed_label is not None:
+            return (f"대장 합계 대사 해석 불가 — 합계행 '{self.unparsed_label}'을 찾았지만 금액을 읽지 "
+                    f"못했습니다(완전성 미검증, 실패 처리)")
         if not self.found:
             return "대장 합계 대사 불가 — 합계행을 찾지 못했습니다(완전성 미검증)"
         if self.matched:
@@ -346,7 +401,8 @@ def _row_to_asset(row, cols, fy: int, fye: int) -> Tuple[Optional[dict], Optiona
         # 이월자산 + 당기 자본적지출: 대장에 증가월이 없어 재계산 불가 (V2 과제)
         return None, (ident, "스코프외-당기증가조합(증가월 미상)")
 
-    account = str(row.get(cols["account"], "")).strip()
+    acct_cell = row.get(cols["account"])
+    account = "" if _blank(acct_cell) else str(acct_cell).strip()   # 빈 셀이 'nan' 계정이 되지 않게
     intang, cost, why = classify_asset(base, prev_acc, prev_book, capex, account)
     if why is not None:
         return None, (ident, why)
@@ -402,15 +458,15 @@ def read_ledger(path: str, fy: int, fye: int = 12,
     assets, unreadable, structural = [], [], 0
     sums = {"exp_dep": 0, "exp_acc": 0, "exp_bk": 0}
     rows_summed = rows_unsummed = 0
-    control = None
+    control = unparsed_label = None
     for _, row in df.iterrows():
         if _structural(row, cols):
             structural += 1                # 소계/합계 등 비자산 행
-            name = row.get(cols["asset_name"])
-            label = "" if _blank(name) else re.sub(r"\s", "", str(name))
-            amounts = _ledger_amounts(row, cols)
-            if amounts is not None and _is_grand_total(label):
-                control = {"label": label, **amounts}   # 뒤에 오는 총계가 이긴다(맨 아래가 총계)
+            label = _grand_total_label(row, cols)
+            if label is not None:          # 뒤에 오는 총계가 이긴다(맨 아래가 총계)
+                amounts = _ledger_amounts(row, cols, blank_is_zero=True)
+                control = {"label": label, **amounts} if amounts is not None else None
+                unparsed_label = None if amounts is not None else label
             continue
         # 판정 가능 여부와 무관하게 대장이 표시한 금액을 합산한다 — 검증불능 행을
         # 빼고 더하면 합계가 안 맞는 게 당연해져 대사가 무의미해진다.
@@ -426,4 +482,5 @@ def read_ledger(path: str, fy: int, fye: int = 12,
             assets.append(a)
         else:
             unreadable.append(bad)
-    return assets, unreadable, structural, ControlTotal(control, sums, rows_summed, rows_unsummed)
+    return assets, unreadable, structural, ControlTotal(control, sums, rows_summed, rows_unsummed,
+                                                        unparsed_label)

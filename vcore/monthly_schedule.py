@@ -125,16 +125,22 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
     validate_asset_inputs(cost, acq_month, fiscal_end_month)
     _validate_events(declining, inc, disp)
     m_std = standard_acq_month(fiscal_end_month, acq_month)
-    months = _monthly_fn(declining)(cost, life_years, m_std)
+    monthly_fn = _monthly_fn(declining)
+    natural, scaled = monthly.event_bases(monthly_fn, cost, life_years, m_std)
     truncated = False
     basis = cost
+    bases = [(0, cost)]                                   # 5% 교차 판정용 취득가액 구간(INC-18)
     event_start = 0                                       # 마지막 이벤트 후 첫 달 (균등화 구간 시작)
     if inc is not None:
         inc_amount, inc_year, inc_month = inc
         k = (inc_year * 12 + inc_month) - (acq_year * 12 + acq_month)
-        months = capex.apply_increase(months, k, inc_amount)
+        scaled = capex.apply_increase(scaled, k, inc_amount, len(natural))
         basis = cost + inc_amount
+        bases.append((k, basis))                          # §72⑤2: 증가액을 취득가액에 가산
         event_start = k
+    # scaled = 정률 5% 절단 전(이벤트 스케일용), months = 교차를 그 시점 취득가액으로 판정한 것.
+    # 양도 시점이 '상각 종료 후'인지는 months로 판정한다(증가가 종료월을 바꿀 수 있다).
+    months = monthly.recut(monthly_fn, scaled, bases)
     if disp is not None:
         disp_amount, disp_year, disp_month = disp
         d = disposal.months_to_disposal(acq_year, acq_month, disp_year, disp_month)
@@ -156,7 +162,9 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
                     f"자연종료 시점 이후의 부분양도는 월별 스케줄로 표현할 수 없습니다 "
                     f"(양도 {disp_year}-{disp_month:02d}, 상각 종료 {len(months)}개월째). "
                     f"연도별 API(schedule_partial_disposal)를 쓰면 조정행으로 표시됩니다")
-            months = disposal.apply_partial_disposal(months, basis, d + 1, disp_amount)
+            months = disposal.apply_partial_disposal(scaled, basis, d + 1, disp_amount)
+            bases.append((d + 1, basis - disp_amount))    # 잔존 자산의 취득가액
+            months = monthly.recut(monthly_fn, months, bases)
             event_start = max(event_start, d + 1)
     if not truncated:                                     # 자연완료: 종료해 균등(마지막 이벤트 이후)
         months = monthly.settle_terminal_evenly(months, event_start)

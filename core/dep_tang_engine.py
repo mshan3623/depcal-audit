@@ -434,6 +434,7 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
                                                *,
                                                fiscal_year_end_month: int,
                                                settle_terminal_evenly: bool = True,
+                                               five_percent_cut: bool = True,
                                                prior_accumulated: int = None,
                                                target_year: int = None) -> List[MonthlyDepreciation]:
     """한국세법 정률법 감가상각 계산
@@ -564,10 +565,13 @@ def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
         # 시행령 §26⑥: 잔존가액(5%)은 미상각잔액이 최초로 취득가액의 5% 이하가 되는 사업연도에
         # 가산한다. 종료해가 짧은 꼬리면(20년·둘째 달 취득 → 1개월) 그 직전 해에 이미 5% 이하가
         # 되므로, 그 해 마지막 달을 상각 종료월로 당긴다(vcore declining_balance.month_counts와 동일).
+        # 이벤트 base 벡터(five_percent_cut=False)는 자르지 않는다 — 자본적지출·부분양도가 취득가액을
+        # 바꾸므로 교차는 이벤트 적용 뒤 `_cut_at_five_percent`가 다시 판정한다(INC-18).
         from .dep_common import get_fiscal_year, get_fiscal_year_dep_window
         sim_book = cost
         last_fy = get_fiscal_year(dep_end_year, dep_end_month, fiscal_year_end_month)
-        for fy in range(get_fiscal_year(start_year, start_month, fiscal_year_end_month), last_fy):
+        for fy in (range(get_fiscal_year(start_year, start_month, fiscal_year_end_month), last_fy)
+                   if five_percent_cut else ()):
             fy_months, _, _, fy_last_y, fy_last_m = get_fiscal_year_dep_window(
                 fy, fiscal_year_end_month, start_year, start_month, dep_end_year, dep_end_month)
             sim_book -= min(yearly_declining(sim_book, depreciation_rate, fy_months),
@@ -1044,6 +1048,49 @@ def _calculate_with_increase(cost: int, life_years: int, start_date: str,
     return new_schedule
 
 
+def _next_month(year: int, month: int) -> tuple:
+    return (year + 1, 1) if month == 12 else (year, month + 1)
+
+
+def _natural_end_declining(cost, life_years, start_date, salvage_value, memorandum_value,
+                           fiscal_year_end_month) -> tuple:
+    """이벤트 없는 정률 스케줄의 마지막 (연, 월) — 원가 기준 5% 교차 해 또는 내용연수 종료월.
+
+    이벤트(자본적지출·부분양도)가 상각 종료 **후**인지는 이것으로 판정한다(vcore `event_bases`의
+    자연종료 base와 같다). 이벤트 이전은 원가가 취득가액이다.
+    """
+    natural = _calculate_korean_declining_balance_enhanced(
+        cost=cost, life_years=life_years, start_date=start_date, salvage_value=salvage_value,
+        memorandum_value=memorandum_value, disposal_date=None,
+        fiscal_year_end_month=fiscal_year_end_month, settle_terminal_evenly=False)
+    return natural[-1].year, natural[-1].month
+
+
+def _cut_at_five_percent(schedule: List[MonthlyDepreciation], bases: list,
+                         fiscal_year_end_month: int, memorandum_value: int) -> List[MonthlyDepreciation]:
+    """§26⑥ 정률 5% 교차를 **그 시점 취득가액**으로 판정해 자른다 — vcore `monthly.cut_at_five_percent` 거울.
+
+    bases = [((연, 월) 시작, 그 달부터의 취득가액)] 오름차순 — 원가, 자본적지출 증가월부터 원가+증가액
+    (§72⑤2), 부분양도 익월부터 잔존 취득가액. 결산월 말 미상각잔액 × 20 ≤ 취득가액인 첫 해의
+    결산월이 잔액을 비망가까지 정리하고 그 뒤는 없다. INC-16은 base 벡터를 원가 기준으로 미리
+    잘라, 자본적지출로 커진 장부가가 통합 취득가액의 5%를 넘는데도 한 해 먼저 정리했다(INC-18).
+    """
+    for i, m in enumerate(schedule):
+        if m.month != fiscal_year_end_month:
+            continue
+        basis = [b for start, b in bases if (m.year, m.month) >= start][-1]
+        if m.book_value * 20 <= basis:
+            before = m.book_value + m.numeric_depreciation
+            amount = max(0, before - memorandum_value)      # 이미 비망가 미만이면 올리지 않는다
+            delta = amount - m.numeric_depreciation
+            m.monthly_depreciation = amount
+            m.accumulated_depreciation += delta
+            m.book_value -= delta
+            m.is_last_month = True
+            return schedule[:i + 1]
+    return schedule
+
+
 def _calculate_with_increase_declining(cost: int, life_years: int, start_date: str,
                                         increase_amount: int, increase_date: str,
                                         salvage_value: int = 0, memorandum_value: int = 1000,
@@ -1088,10 +1135,18 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
         disposal_date=None,  # 증가 시에는 disposal 무시
         fiscal_year_end_month=fiscal_year_end_month,
         settle_terminal_evenly=False,  # 합성 base 벡터: 종료해 균등화 미적용(이벤트 후 재정산)
+        five_percent_cut=False,        # 5% 교차는 증가 후 취득가액으로 다시 판정(INC-18)
     )
+    # 자연종료 판정용 — 이벤트 없는 스케줄(원가 기준 5% 교차에서 끝남)
+    natural_end = _natural_end_declining(cost, life_years, start_date, salvage_value,
+                                         memorandum_value, fiscal_year_end_month)
 
     # Step 2: 증가 시점 파싱
     increase_year, increase_month, increase_day = parse_date_safe(increase_date)
+    if (increase_year, increase_month) > natural_end:
+        raise ValueError(
+            f"자본적지출 시점({increase_year}-{increase_month:02d})이 상각 종료"
+            f"({natural_end[0]}-{natural_end[1]:02d}) 이후입니다")
     logger.info(f"증가 시점: {increase_year}년 {increase_month}월")
 
     # Step 3: 증가 직전월 찾기
@@ -1377,6 +1432,12 @@ def _calculate_with_increase_declining(cost: int, life_years: int, start_date: s
 
         logger.info(f"부분양도 후 계속 처리 완료: 양도월부터 {len(vector_months_after_disposal)}개월 추가")
 
+    bases = [((0, 0), cost), ((increase_year, increase_month), cost + increase_amount)]
+    if is_partial_disposal and vector_months_after_disposal:
+        bases.append((_next_month(disposal_prev_year, disposal_prev_month),
+                      actual_cost_at_disposal - disposal_amount))
+    new_schedule = _cut_at_five_percent(new_schedule, bases, fiscal_year_end_month, memorandum_value)
+
     logger.info(f"증가 처리 계산 완료 (정률법): 총 {len(new_schedule)}개월")
     logger.info(f"최종 장부가액: {new_schedule[-1].book_value:,}원")
 
@@ -1442,6 +1503,10 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
         disposal_date=None,  # 양도 없이 전체 스케줄 계산
         fiscal_year_end_month=fiscal_year_end_month,
         settle_terminal_evenly=False,  # 합성 base 벡터: 종료해 균등화 미적용(이벤트 후 재정산)
+        # 종료 전 양도면 5% 교차를 잔존 취득가액으로 다시 판정하므로 자르지 않는다(INC-18).
+        # 종료(월) 후 양도면 월 영향이 없어 이벤트 없는 스케줄 그대로다.
+        five_percent_cut=(disposal_year, disposal_month) >= _natural_end_declining(
+            cost, life_years, start_date, salvage_value, memorandum_value, fiscal_year_end_month),
     )
 
     if not base_schedule:
@@ -1585,6 +1650,10 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
             book_value=current_book_value,
             calculation_method=calculation_method
         ))
+
+    new_schedule = _cut_at_five_percent(
+        new_schedule, [((0, 0), cost), (_next_month(disposal_year, disposal_month), cost - disposal_amount)],
+        fiscal_year_end_month, memorandum_value)
 
     logger.info(f"부분양도 처리 완료 (정률법): 총 {len(new_schedule)}개월")
     return new_schedule

@@ -24,6 +24,7 @@ Interactive CLI for Depreciation Schedule Generator
 import sys
 import os
 from datetime import datetime
+from fractions import Fraction
 
 # asset_schedule_generator 모듈 import
 from asset_schedule_generator import generate_depreciation_schedule
@@ -161,8 +162,14 @@ def partial_disposal_amount_from_ratio(acquisition_cost: int, ratio: float) -> i
 
     0원은 생성기에서 '금액 미지정 = 전부양도'로 읽힌다. 소액 원가에 작은 비율(5,000원 × 0.01%)을
     넣으면 요약에는 '부분양도'가 찍힌 채 전부양도 표가 나왔다(감사 2026-09-23 M4).
+
+    비율은 **입력한 십진수 그대로**의 유리수로 바꿔 정수 곱셈·나눗셈 한 번으로 계산한다.
+    `int(cost * ratio / 100)`는 float라 1,000,000원 × 2.01% → 20,099(정답 20,100)였다 — 소수 비율
+    입력의 1.06%(감사 2026-10-14 G2, INC-19 — 원단위 산술 4회차). `str(float)`은 입력을 그대로
+    돌려주는 최단 표기라 `Fraction(str(2.01))` = 201/100.
     """
-    amount = int(acquisition_cost * ratio / 100)
+    exact = Fraction(str(ratio))
+    amount = acquisition_cost * exact.numerator // (exact.denominator * 100)
     if amount < 1:
         raise ValueError(f"처분비율 {ratio:g}%는 취득원가 {acquisition_cost:,}원에서 0원입니다 "
                          f"— 금액(원)으로 입력하세요")
@@ -349,7 +356,7 @@ def display_summary(info: dict):
         print(f"처분일자:         {info['disposal_date']}")
         print(f"처분유형:         {disposal_type}")
         if info.get('disposal_ratio'):
-            print(f"처분비율:         {info['disposal_ratio']:.0f}%")
+            print(f"처분비율:         {info['disposal_ratio']:g}%")   # .0f는 2.01%를 2%로 보였다
         # 전체양도는 금액이 아니라 None — 제거되는 원가는 통합 취득원가 전액이다
         if info['disposal_amount'] is None:
             total_basis = info['acquisition_cost'] + (info.get('increase_amount') or 0)

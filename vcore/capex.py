@@ -15,7 +15,7 @@ dep_vector — 자본적지출(증가) 슬림 코어 (정액·정률)
 정액·정률 증가 로직은 레퍼런스에서 바이트 동일 — base 월별 벡터만 다르다(monthly.sl/db).
 """
 
-from typing import List
+from typing import List, Optional
 
 from vcore import monthly
 from vcore.monthly import Month
@@ -24,17 +24,20 @@ from vcore.projection import (
 )
 
 
-def apply_increase(base: List[Month], k: int, inc_amount: int) -> List[Month]:
+def apply_increase(base: List[Month], k: int, inc_amount: int,
+                   natural_len: Optional[int] = None) -> List[Month]:
     """증가월(상대 인덱스 k)부터 base 벡터에 ratio 적용 (레퍼런스 Vector 비율 논리).
 
     가드가 여기 있는 이유: monthly_schedule.monthly_events가 이 함수를 직접 호출하므로
     상위 진입점이 아닌 단일 관문에서 막아야 우회 경로가 없다.
+    natural_len = 이벤트 없는 스케줄 길이(자연종료 판정). 정률은 스케일 base가 5% 절단 전
+    전체라 base 길이보다 짧을 수 있다(`monthly.event_bases`, INC-18). 생략하면 base 길이.
     """
     if inc_amount <= 0:
         raise ValueError(f"자본적지출 금액은 양수여야 합니다 (inc_amount={inc_amount})")
     if k <= 0:              # k≤0은 base[k-1] 음수 인덱스로 직전월이 오염돼 폭주
         raise ValueError(f"자본적지출 시점은 취득월 이후여야 합니다 (취득 후 {k}개월)")
-    if k >= len(base):      # 자연종료 이후 증가는 미지원 — 조용한 무시/IndexError 방지
+    if k >= (len(base) if natural_len is None else natural_len):   # 자연종료 이후 증가는 미지원
         raise ValueError(f"자본적지출 시점(취득 후 {k}개월)이 내용연수 종료 이후입니다")
     prev = base[k - 1]                                   # 증가 직전월
     # 증가 시 누계 불변 (book만 증가) — 스케일 루프는 부분양도와 공용 골격 사용
@@ -48,8 +51,10 @@ def months_with_increase(monthly_fn, cost, life_years, acq_year, acq_month,
     validate_asset_inputs(cost, acq_month, fiscal_end_month)
     m_std = standard_acq_month(fiscal_end_month, acq_month)
     k = (inc_year * 12 + inc_month) - (acq_year * 12 + acq_month)   # 취득→증가 개월 간격 (불변량)
-    base = monthly_fn(cost, life_years, m_std)
-    months = apply_increase(base, k, inc_amount)
+    natural, base = monthly.event_bases(monthly_fn, cost, life_years, m_std)
+    months = apply_increase(base, k, inc_amount, len(natural))
+    # 정률 5% 교차는 증가월부터 통합 취득가액(원가+증가액, §72⑤2) 기준으로 다시 판정(INC-18)
+    months = monthly.recut(monthly_fn, months, [(0, cost), (k, cost + inc_amount)])
     return monthly.settle_terminal_evenly(months, k)   # 자연완료: 종료해 균등(증가 이후 구간)
 
 

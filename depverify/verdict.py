@@ -24,6 +24,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from depverify.reader import is_development_cost
 from vcore.declining_balance import schedule as db_schedule
 from vcore.disposal import schedule_full_disposal, schedule_full_disposal_declining
 from vcore.intangible import (schedule_development_cost,
@@ -57,7 +58,8 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
     declining = (method == "정률법") and not intang    # 무형은 정액(별표4, 개발비만 1/n)
     # 개발비(시행령 §26①6)는 별표4가 아니라 취득가액 ÷ 신고내용연수의 경과월수 비례다.
     # 계정과목으로만 가린다 — 자산명의 '개발'은 소프트웨어 등 다른 무형에도 흔하다.
-    development_cost = intang and "개발비" in (a.get("account") or "")
+    # 판정은 reader.is_development_cost 한 곳(무형 사전과 같은 정규화 키, 감사 M3).
+    development_cost = intang and is_development_cost(a.get("account"))
 
     try:
         if development_cost and disposed:

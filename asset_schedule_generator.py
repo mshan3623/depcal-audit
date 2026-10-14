@@ -378,7 +378,13 @@ class ExcelGenerator:
         row = next((r for r in self.schedule
                     if r['year'] == disposal_date.year and r['month'] == disposal_date.month), None)
         if row is None:
-            return None
+            # 처분월이 월별 스케줄 밖 = 상각 종료 **후** 처분(상각완료 자산의 폐기·매각). 종전엔
+            # None을 돌려줘 처분 사실이 시트 어디에도 남지 않았다(감사 2026-10-14 G4, INC-22).
+            # 종료 이후 상각이 없으므로 제거액은 종료 시점 상태 그대로다.
+            last = self.schedule[-1]
+            if (disposal_date.year, disposal_date.month) < (last['year'], last['month']):
+                raise ValueError(f"처분일({ai.disposal_date})이 상각 스케줄 안에 없습니다")
+            row = last
 
         # 이벤트 시점 통합 취득원가 = vcore monthly_events의 basis와 같은 정의
         basis = ai.acquisition_cost + (ai.increase_amount or 0)

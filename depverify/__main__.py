@@ -102,9 +102,9 @@ def _main(argv=None) -> int:
     c = result.counts()
     # 합계 대사 불일치는 '차이'와 같은 무게다 — 대장에 있는 행을 못 읽었다는 뜻이라
     # 판정 결과 자체가 불완전하다. 합계행이 없어 대사 불가인 경우는 실패로 보지 않는다
-    # (미검증이지 불일치가 아니다 — 보고서 첫 줄에 그렇게 적힌다).
-    control_failed = control.found and not control.matched
-    return 1 if (c["차이"] or c["검증불능"] or control_failed) else 0
+    # (미검증이지 불일치가 아니다 — 보고서 첫 줄에 그렇게 적힌다). 합계행을 찾았는데 금액을
+    # 못 읽은 것은 실패다 — 이것까지 '없음'으로 보면 게이트가 조용히 꺼진다(INC-21).
+    return 1 if (c["차이"] or c["검증불능"] or control.failed) else 0
 
 
 if __name__ == "__main__":

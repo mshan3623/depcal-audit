@@ -255,7 +255,7 @@ rows = straight_line.schedule(cost=10_000_000, life_years=5, acq_year=2023, acq_
 
 ### 테스트
 ```bash
-pytest -q                                   # 전체 (3.7.0 기준 1,640 통과)
+pytest -q                                   # 전체 (통과 건수는 CHANGELOG 릴리스 항목에 기록)
 python tests/test_depreciation_scenarios.py # 레거시 엔진 12/12 (oracle 스냅샷)
 # tests_vector/: vcore vs 레퍼런스 1원 일치 회귀 가드 + 손계산 절대 골든값
 ```
@@ -274,7 +274,7 @@ python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx
 ```
 
 > **자매 앱 `../dep_verify`도 현역입니다** — 더존 출력물을 파싱→표준스키마화해 본 엔진과의
-> 대조를 쉽게 해주는 별도 저장소이며, `core/vcore_engine.py`가 vcore를 직접 import합니다
+> 대조를 쉽게 해주는 별도 저장소이며, 그 저장소의 `core/vcore_engine.py`가 vcore를 직접 import합니다
 > (2026-08-11 재실행: pytest 19 passed · A사 3개년 99/99).
 >
 > ⚠️ **자산유형·취득원가 판별은 `depverify/reader.py`의 `classify_asset()` 1벌뿐입니다**
@@ -285,7 +285,8 @@ python -m depverify <대장.xlsx> [--fy 2024] [--tolerance 0] [--out report.xlsx
 
 - **A사 실대장 검증**: 2022·2024·2025 = **99/99 (100%)** — 폐기·양도·분할양도 포함
 - 더존 컬럼 의미·계산 규칙은 **`../dep_verify/docs/DOUZONE_COLUMNS.md` (비공개 문서)** 참조
-  - 양도자산: 더존은 **양도월까지 월할**(공식 확인), 엔진 기본은 직전월까지(정론) — 컨벤션 선택 가능
+  - 양도자산: 더존은 **양도월까지 월할**(공식 확인) — 엔진도 같은 규칙 하나(양도월 포함, 2026-06-13 통일).
+    컨벤션 선택 옵션은 없다
   - 무형자산: 직접상각(기초가액=장부가액, 취득원가=기초가+전기말누계)
   - **유형/무형 판별은 계정과목명 사전이 아니라 대장 자체의 항등식이 1순위**입니다 —
     간접법(유형) `전기말장부가액 = 기초가액 − 전기말누계` / 직접법(무형) `전기말장부가액 = 기초가액`.
