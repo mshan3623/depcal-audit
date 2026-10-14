@@ -38,6 +38,7 @@ def _format_calc_method(raw_method: str) -> str:
         "한국세법정률법": "정률법",
         "한국세법정률법_취득월할계산": "정률법 (취득월할)",
         "한국세법무형자산정액법": "무형자산 정액법",
+        "한국세법개발비": "개발비 1/n(§26①6)",
         "한국세법무형자산정액법_취득월할계산": "무형자산 정액법 (취득월할)",
         "정액법_최종월조정": "정액법 (최종월)",
         "정률법_최종월조정": "정률법 (최종월)",
@@ -84,7 +85,7 @@ class AssetInput:
         acquisition_date: str,  # YYYY-MM-DD
         acquisition_cost: int,
         useful_life: int,
-        asset_type: str,  # "유형자산" or "무형자산"
+        asset_type: str,  # "유형자산" | "무형자산" | "개발비"
         depreciation_method: str,  # "정액법" or "정률법"
         disposal_date: Optional[str] = None,  # YYYY-MM-DD
         disposal_amount: Optional[int] = None,
@@ -123,21 +124,31 @@ class AssetInput:
         if self.acquisition_cost <= 0:
             return False, "취득원가는 0보다 커야 합니다"
 
-        # 내용연수 검증
-        if not (2 <= self.useful_life <= 60):
-            return False, "내용연수는 2~60년 사이여야 합니다"
-
         # 자산유형 검증
-        if self.asset_type not in ["유형자산", "무형자산"]:
-            return False, "자산유형은 '유형자산' 또는 '무형자산'이어야 합니다"
+        if self.asset_type not in ["유형자산", "무형자산", "개발비"]:
+            return False, "자산유형은 '유형자산', '무형자산', '개발비' 중 하나여야 합니다"
+
+        # 내용연수 검증 — 개발비는 신고내용연수 1~20년(시행령 §26①6), 그 밖은 별표4 2~60년
+        if self.asset_type == "개발비":
+            if not (1 <= self.useful_life <= 20):
+                return False, "개발비 내용연수는 1~20년 사이여야 합니다(시행령 §26①6)"
+        elif not (2 <= self.useful_life <= 60):
+            return False, "내용연수는 2~60년 사이여야 합니다"
 
         # 감가상각방법 검증
         if self.depreciation_method not in ["정액법", "정률법"]:
             return False, "감가상각방법은 '정액법' 또는 '정률법'이어야 합니다"
 
-        # 무형자산은 정액법만 가능
-        if self.asset_type == "무형자산" and self.depreciation_method == "정률법":
-            return False, "무형자산은 정액법만 적용 가능합니다"
+        # 무형자산·개발비는 정액법만 가능
+        if self.asset_type in ("무형자산", "개발비") and self.depreciation_method == "정률법":
+            return False, f"{self.asset_type}은 정액법만 적용 가능합니다"
+
+        # 개발비는 1/n 경과월수 비례(§26①6) — 자본적지출·부분양도는 재계산 규칙이 확립되지 않았다
+        if self.asset_type == "개발비":
+            if self.increase_date or self.increase_amount:
+                return False, "개발비 자본적지출은 지원하지 않습니다(재계산 규칙 미확립)"
+            if self.disposal_amount is not None and self.disposal_amount < self.acquisition_cost:
+                return False, "개발비 부분양도는 지원하지 않습니다(전부 양도·폐기만 — 금액을 비우세요)"
 
         # 처분일자 검증 (선택사항)
         if self.disposal_date:
@@ -226,12 +237,16 @@ class MonthlyScheduleGenerator:
             d = datetime.strptime(ai.disposal_date, "%Y-%m-%d")
             disp = (ai.disposal_amount, d.year, d.month)   # None = 전부양도 (AssetInput에서 정규화)
 
+        development_cost = ai.asset_type == "개발비"
         cal = monthly_events(ai.acquisition_cost, ai.useful_life, acq.year, acq.month,
-                             ai.fiscal_year_end_month, declining, inc=inc, disp=disp)
+                             ai.fiscal_year_end_month, declining, inc=inc, disp=disp,
+                             development_cost=development_cost)
         if not cal:
             raise ValueError("감가상각 스케줄을 생성할 수 없습니다")
 
-        if ai.asset_type == "무형자산":
+        if development_cost:
+            method_str = "한국세법개발비"
+        elif ai.asset_type == "무형자산":
             method_str = "한국세법무형자산정액법"
         else:
             method_str = "한국세법정률법" if declining else "한국세법정액법"
@@ -417,7 +432,7 @@ class ExcelGenerator:
             ("구분", "항목", "내용", "단위/비고"),
             ("", "", "", ""),
             ("자산 정보", "자산명", self.asset_input.asset_name, ""),
-            ("", "자산유형", self.asset_input.asset_type, "유형자산 또는 무형자산"),
+            ("", "자산유형", self.asset_input.asset_type, "유형자산·무형자산·개발비"),
             ("", "감가상각방법", self.asset_input.depreciation_method, "정액법 또는 정률법"),
             ("", "", "", ""),
             ("취득 정보", "취득일자", self.asset_input.acquisition_date, "YYYY-MM-DD 형식"),
@@ -728,7 +743,7 @@ def generate_depreciation_schedule(
         acquisition_date: 취득일자 (YYYY-MM-DD)
         acquisition_cost: 취득원가 (원)
         useful_life: 내용연수 (년)
-        asset_type: 자산유형 ("유형자산" or "무형자산")
+        asset_type: 자산유형 ("유형자산" | "무형자산" | "개발비" — 개발비는 1/n, 시행령 §26①6)
         depreciation_method: 감가상각방법 ("정액법" or "정률법")
         disposal_date: 처분일자 (YYYY-MM-DD, 선택)
         disposal_amount: 처분금액 (원, 선택)

@@ -10,7 +10,7 @@ dep_vector — 달력 매핑 월별 스케줄 (실행 경로용 공개 API)
 from dataclasses import dataclass
 from typing import List
 
-from vcore import capex, disposal, monthly
+from vcore import capex, disposal, intangible, monthly
 from vcore.monthly import Month
 from vcore.projection import first_fiscal_year, standard_acq_month, validate_asset_inputs
 
@@ -88,7 +88,7 @@ def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def _validate_events(declining, inc, disp) -> None:
+def _validate_events(declining, inc, disp, development_cost=False) -> None:
     """이벤트 입력 가드 — cost만 보던 G21 가드를 이벤트까지 넓힌다(감사 2026-09-23).
 
     종전엔 소수 양도액이 소수 장부가로, 13월이 다음 해 1월로, `declining="no"`가 정률로
@@ -97,6 +97,12 @@ def _validate_events(declining, inc, disp) -> None:
     """
     if not isinstance(declining, bool):
         raise ValueError(f"declining은 bool이어야 합니다 (declining={declining!r})")
+    if not isinstance(development_cost, bool):
+        raise ValueError(f"development_cost는 bool이어야 합니다 ({development_cost!r})")
+    if development_cost and declining:
+        raise ValueError("개발비는 정률법으로 상각하지 않습니다(시행령 §26①6 — 1/n 경과월수 비례)")
+    if development_cost and inc is not None:
+        raise ValueError("개발비 자본적지출은 지원하지 않습니다(재계산 규칙 미확립)")
     for name, ev, amount_may_be_none in (("inc", inc, False), ("disp", disp, True)):
         if ev is None:
             continue
@@ -112,7 +118,8 @@ def _validate_events(declining, inc, disp) -> None:
 
 def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
                    fiscal_end_month: int = 12, declining: bool = False,
-                   inc: tuple = None, disp: tuple = None) -> List[CalendarMonth]:
+                   inc: tuple = None, disp: tuple = None,
+                   development_cost: bool = False) -> List[CalendarMonth]:
     """이벤트 일반 디스패치 — 실행 경로(상각명세서)의 단일 진입점.
 
     inc  = (증가액, 연, 월) 또는 None
@@ -121,11 +128,13 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
     부분양도 잔존비율 분모는 이벤트 시점 통합 취득원가(원가+증가액).
     이벤트 시점 가드는 단일 관문(capex.apply_increase, disposal.months_to_disposal,
     disposal.apply_partial_disposal)에서 발화한다.
+    development_cost = 개발비(시행령 §26①6, 1/n 경과월수 비례 — `intangible.dev_monthly`).
+    전부양도(폐기)만 지원하고 자본적지출·부분양도는 거절한다(재계산 규칙 미확립, depverify와 같다).
     """
     validate_asset_inputs(cost, acq_month, fiscal_end_month)
-    _validate_events(declining, inc, disp)
+    _validate_events(declining, inc, disp, development_cost)
     m_std = standard_acq_month(fiscal_end_month, acq_month)
-    monthly_fn = _monthly_fn(declining)
+    monthly_fn = intangible.dev_monthly if development_cost else _monthly_fn(declining)
     natural, scaled = monthly.event_bases(monthly_fn, cost, life_years, m_std)
     truncated = False
     basis = cost
@@ -151,6 +160,8 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
             truncated = d + 1 < len(months)
             months = months[:d + 1]
         else:                                             # 부분양도
+            if development_cost:
+                raise ValueError("개발비 부분양도는 지원하지 않습니다(재계산 규칙 미확립)")
             if d + 1 >= len(months):
                 # 상각이 끝난(또는 끝나는) 달의 부분양도. 월벡터에는 분배를 실을 칸이
                 # 없어 `apply_ratio_from`이 조용히 사본을 돌려주고 양도가 **무흔적으로

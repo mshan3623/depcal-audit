@@ -192,19 +192,25 @@ def collect_asset_info():
     print("\n[참고] 단위: 원 (콤마 입력 가능, 예: 10,000,000)")
     acquisition_cost = get_integer_input("3. 취득원가: ", min_value=1)
 
-    # 4. 내용연수
-    print("\n[참고] 단위: 년 (2~60년)")
-    useful_life = get_integer_input("4. 내용연수: ", min_value=2, max_value=60)
-
-    # 5. 자산유형
+    # 4. 자산유형 — 내용연수 범위가 유형에 따라 달라 먼저 묻는다
     asset_type = get_choice_input(
-        "5. 자산유형:",
-        choices=["유형자산", "무형자산"]
+        "4. 자산유형:",
+        choices=["유형자산", "무형자산", "개발비"],
+        display_names=["유형자산", "무형자산 (별표4 정액)", "개발비 (취득가액 ÷ 신고내용연수, 시행령 §26①6)"]
     )
+    is_development_cost = asset_type == "개발비"
+
+    # 5. 내용연수 — 개발비는 신고내용연수 1~20년, 그 밖은 별표4 2~60년
+    if is_development_cost:
+        print("\n[참고] 단위: 년 (개발비 신고내용연수 1~20년)")
+        useful_life = get_integer_input("5. 내용연수: ", min_value=1, max_value=20)
+    else:
+        print("\n[참고] 단위: 년 (2~60년)")
+        useful_life = get_integer_input("5. 내용연수: ", min_value=2, max_value=60)
 
     # 6. 감가상각방법
-    if asset_type == "무형자산":
-        print("\n6. 감가상각방법: 정액법 (무형자산은 정액법만 적용)")
+    if asset_type in ("무형자산", "개발비"):
+        print(f"\n6. 감가상각방법: 정액법 ({asset_type}은 정액법만 적용)")
         depreciation_method = "정액법"
     else:
         depreciation_method = get_choice_input(
@@ -214,7 +220,12 @@ def collect_asset_info():
 
     # 7. 자본적지출(증가) 정보 (선택) - 처분보다 먼저 입력
     print_separator()
-    has_increase = get_yes_no_input("\n[증가] 자본적지출(증가) 정보를 입력하시겠습니까?")
+    if is_development_cost:
+        # 개발비 자본적지출·부분양도는 재계산 규칙이 확립되지 않았다 — 엔진도 거절한다
+        print("\n[참고] 개발비는 자본적지출을 지원하지 않습니다 (처분은 전체 양도·폐기만)")
+        has_increase = False
+    else:
+        has_increase = get_yes_no_input("\n[증가] 자본적지출(증가) 정보를 입력하시겠습니까?")
 
     increase_date = None
     increase_amount = None
@@ -260,8 +271,8 @@ def collect_asset_info():
 
             break
 
-        # 전체양도 vs 부분양도 선택
-        disposal_type = get_choice_input(
+        # 전체양도 vs 부분양도 선택 (개발비는 전체만)
+        disposal_type = "전체양도" if is_development_cost else get_choice_input(
             "10. 처분유형:",
             choices=["전체양도", "부분양도"]
         )
