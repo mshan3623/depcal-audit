@@ -283,3 +283,48 @@ def test_disposal_after_full_depreciation_is_unverifiable():
     v = verify_asset(_sold(fy=2030, disp_y=2030, exp_dep=0, exp_acc=0, exp_bk=0))
     assert v.status == "검증불능"
     assert "비교식미확립" in v.reason and "상각완료" in v.reason
+
+
+# ── 시트·출력 경로·빈 대장 (평가 2026-11-10) ───────────────────────────────
+
+_ONE = [_asset_row("자산A", 12_000_000, 4_200_000, 2_400_000, 6_600_000, 5_400_000)]
+
+
+def test_cli_stops_when_workbook_has_another_ledger_sheet(tmp_path, capsys):
+    """대장 시트가 둘인데 --sheet가 없으면 첫 시트만 보고 '전 자산 일치'라고 하지 않는다."""
+    from depverify.__main__ import main
+    path = _write(tmp_path, _ONE, extra_sheet=True)
+    out = str(tmp_path / "r.xlsx")
+    assert main([path, "--fy", "2024", "--out", out]) == 2
+    assert "두번째" in capsys.readouterr().err
+    # 시트를 고르면 진행하되, 검증하지 않은 시트를 화면과 보고서에 남긴다
+    assert main([path, "--fy", "2024", "--out", out, "--sheet", "0"]) == 0
+    assert "검증하지 않은 대장 시트: ['두번째']" in capsys.readouterr().out
+    cells = [c for ws in openpyxl.load_workbook(out) for row in ws.values for c in row]
+    assert "검증하지 않은 시트" in cells and "두번째" in cells
+
+
+def test_cli_ignores_non_ledger_sheets(tmp_path):
+    """표지·메모 시트(대장 헤더 없음)는 걸리지 않는다."""
+    from depverify.__main__ import main
+    path = _write(tmp_path, _ONE)
+    wb = openpyxl.load_workbook(path)
+    wb.create_sheet("메모").append(["검토 메모"])
+    wb.save(path)
+    assert main([path, "--fy", "2024", "--out", str(tmp_path / "r.xlsx")]) == 0
+
+
+def test_cli_refuses_to_overwrite_the_ledger(tmp_path):
+    from depverify.__main__ import main
+    path = _write(tmp_path, _ONE)
+    before = open(path, "rb").read()
+    assert main([path, "--fy", "2024", "--out", path]) == 2
+    assert open(path, "rb").read() == before
+
+
+def test_cli_empty_ledger_is_not_a_pass(tmp_path, capsys):
+    from depverify.__main__ import main
+    path = _write(tmp_path, [])
+    assert main([path, "--fy", "2024", "--out", str(tmp_path / "r.xlsx")]) == 1
+    out = capsys.readouterr().out
+    assert "0건" in out and "전 자산 시스템 산출값과 일치" not in out

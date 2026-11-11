@@ -118,15 +118,12 @@ def test_straight_line_41_years_completes_before_useful_life_ends():
 
     40년차에 장부가가 비망가에 닿는다. 이 축은 5·6년 골든에 없던 칸이다.
 
-    ※ 미결(2026-09-05 B1에서 발견): vcore는 그 뒤에 상각액 0인 41년차 행을 하나 더 붙인다.
-      상각이 끝난 자산을 대장에 0으로 계속 표시하는 실무와 맞을 수도, 분리자산 경로가
-      같은 상황에서 `[]`를 돌려주는 것과 어긋날 수도 있다. 실측 앵커가 0건이라 어느 쪽이
-      옳은지 코드가 정하지 못한다 — 여기서는 **현 동작을 골든으로 굳히지 않고** 상각이
-      40년차에 끝난다는 사실만 고정한다(감사 G12-B 표본 확보 시 판정).
+    판정(2026-11-12, INC-11): 스케줄은 상각이 끝나는 40년차에서 끝난다 — 종전에 붙던 상각액 0인
+    41년차 행은 없다(정률 5% 교차 해 종료·분리자산 `[]`과 같은 규칙, `test_no_zero_tail.py`).
     """
     rows = straight_line.schedule(COST, 41, 2026, 1)
     charged = [r for r in rows if r.depreciation > 0]
     assert len(charged) == 40
     assert charged[-1].depreciation == 2_499_000        # 2,500,000 − 비망가
     assert charged[-1].book_value == MEMORANDUM
-    assert all(r.depreciation == 0 and r.book_value == MEMORANDUM for r in rows[len(charged):])
+    assert len(rows) == 40

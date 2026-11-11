@@ -169,10 +169,10 @@ def test_tangible_partial_disposal_distribution_integrity(eng_n, eng_p, label, d
 @pytest.mark.parametrize("eng_p", [sl_p, dec_p], ids=["sl_p", "dec_p"])
 @pytest.mark.parametrize("label,da,disp,py,pm", PARTIAL_SCEN, ids=[s[0] for s in PARTIAL_SCEN])
 def test_tangible_partial_disposal_remaining_memorandum(eng_p, label, da, disp, py, pm):
-    """잔존 자산이 내용연수 종료월에 book_value = 1,000원 (비망가) 도달."""
+    """잔존 자산이 내용연수 종료월에 잔류분 비망가(1,000 × 잔류비율)에 도달 — 30% 양도 → 700원."""
     sP = eng_p(cost=COST, life_years=LIFE, start_date=START,
                disposal_amount=da, disposal_date=disp)
-    assert int(sP[-1].book_value) == 1000
+    assert int(sP[-1].book_value) == 1000 * (COST - da) // COST
 
 
 # ============================================================

@@ -414,3 +414,23 @@ def test_control_total_reconciles_on_real_ledger(fy):
     _, _, _, control = read_ledger(path, fy)
     assert control.found and control.label == "계정과목총계"
     assert control.reliable and control.matched
+
+
+# ── 상각 종료 후 보유 — 비망 표시가 아니면 차이 (평가 2026-11-10) ─────────────
+
+@pytest.mark.parametrize("method", ["정액법", "정률법"])
+def test_never_depreciated_asset_past_useful_life_is_a_difference(method):
+    """내용연수가 지났는데 당기 0 / 누계 0 / 장부 = 원가 — 상각 누락이다. 종전엔 '일치'였다."""
+    v = verify_asset(_asset(method=method, cost=10_000_000, acq_y=2015, acq_m=3,
+                            exp_dep=0, exp_acc=0, exp_bk=10_000_000, prev_acc=0))
+    assert v.status == "차이"
+    assert (v.d_dep, v.d_acc, v.d_bk) == (0, 9_999_000, -9_999_000)
+
+
+def test_retained_memorandum_still_matches_and_intangible_needs_full_prior():
+    held = dict(cost=10_000_000, acq_y=2015, acq_m=3, exp_dep=0, exp_bk=1000)
+    assert verify_asset(_asset(**held, exp_acc=9_999_000, prev_acc=9_999_000)).status == "일치"
+    assert verify_asset(_asset(**held, intang=True, exp_acc=0, prev_acc=9_999_000)).status == "일치"
+    # 무형: 표시는 비망인데 전기말누계가 모자라면 일치가 아니다
+    v = verify_asset(_asset(**held, intang=True, exp_acc=0, prev_acc=5_000_000))
+    assert v.status == "차이" and v.d_acc == 4_999_000

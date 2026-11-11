@@ -29,10 +29,30 @@ def annual_depreciation(cost: int, life_years: int) -> int:
     return straight_line_annual(cost, life_years)
 
 
+def month_counts(cost: int, life_years: int, acq_month: int) -> List[int]:
+    """정액법 회계연도별 상각 개월수 — 상각이 끝나는 해에서 끊은 standard_month_counts.
+
+    별표4 정액률은 소수 셋째 자리라 상각률 × 내용연수 > 1인 연수가 35개 있다(30년: 0.034 × 30 =
+    1.02). 이런 연수는 내용연수가 끝나기 전에 장부가가 비망가에 닿는다. 그 해에서 스케줄을 끝낸다 —
+    정률이 5% 교차 해에서 끝나는 것(`declining_balance.month_counts`), 분리자산 경로가 같은
+    상황에서 `[]`를 돌려주는 것과 같은 규칙이다. 종전에는 내용연수 끝까지 상각액 0인 행을 붙였고
+    (INC-11), 그 0원 구간의 자본적지출이 한 해 동안 상각되지 않다가 다음 해에 몰렸다
+    (52년·1억, 2076-03 +1천만 → FY2076 0원, FY2077 1천만). 연도별 상각액·누계·장부가는 같다.
+    """
+    annual = annual_depreciation(cost, life_years)     # 범위 가드 = rate_table 단일 관문
+    counts = standard_month_counts(acq_month, life_years)
+    book = cost
+    for i, months in enumerate(counts[:-1]):
+        book -= capped_yearly(book, months, lambda b, m: (annual * m) // 12)
+        if book <= MEMORANDUM:                         # 상각 완료 — 이후 해는 없다
+            return counts[:i + 1]
+    return counts
+
+
 def standard_vector(cost: int, life_years: int, acq_month: int) -> List[FiscalYearRow]:
     """12월 결산 표준형 정액법 벡터 (상대 인덱스 라벨). 정확성의 단일 진실원."""
     annual = annual_depreciation(cost, life_years)
-    counts = standard_month_counts(acq_month, life_years)
+    counts = month_counts(cost, life_years, acq_month)
     rows: List[FiscalYearRow] = []
     acc = 0
     last = len(counts) - 1

@@ -300,6 +300,20 @@ def tag_merger_succession(assets: List[dict], prefix: str, year: int, month: int
     return n
 
 
+def other_ledger_sheets(path: str, sheet=0, mapping: Optional[dict] = None) -> List[str]:
+    """검증 대상 시트 말고 **대장 모양(필수 컬럼 헤더)** 인 시트 이름들.
+
+    리더는 한 시트만 읽고 합계 대사도 그 시트 안에서만 돈다 — 유형/무형이나 연도별로 시트를
+    나눈 통합문서에서 나머지 시트가 흔적 없이 빠지는 것을 호출부가 알 수 있게 한다
+    (평가 2026-11-10). 표지·메모 시트는 헤더가 없어 걸리지 않는다.
+    """
+    cols = {**DOUZONE_COLUMNS, **(mapping or {})}
+    with pd.ExcelFile(path) as xl:
+        chosen = xl.sheet_names[sheet] if isinstance(sheet, int) else sheet
+        return [n for n in xl.sheet_names if n != chosen
+                and all(cols[k] in xl.parse(n, nrows=0).columns for k in REQUIRED_COLUMNS)]
+
+
 class ControlTotal:
     """대장 합계행 대사 결과 — 완전성의 유일한 독립 신호 (감사 G11).
 

@@ -100,8 +100,10 @@ def test_partial_disposal_path_closes_at_large_amounts(fn, cost):
         for r in rows:
             assert r.depreciation >= 0, f"음수 상각 {r}"
             assert r.accumulated >= 0, f"음수 누계 {r}"
-        assert rows[-1].book_value == MEMORANDUM
-        assert rows[-1].accumulated == residual_basis - MEMORANDUM
+        memo = disposal.residual_memorandum(cost, disposal_amount)   # 1,000 × 잔류비율
+        assert MEMORANDUM * (k - 1) // k <= memo <= MEMORANDUM * (k - 1) // k + 1
+        assert rows[-1].book_value == memo
+        assert rows[-1].accumulated == residual_basis - memo
 
 
 # ── (2) 안분 정확도 — float vs 정수 정확연산 ──────────────────────────────

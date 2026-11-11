@@ -168,7 +168,7 @@ GOLDEN_INTANG_PARTIAL = [
     (2028, 12, 13_833_332, 29_880_000, 30_120_000),   # 부분양도 연도(누계 점프 하강)
     (2029, 12,  9_960_000, 39_840_000, 20_160_000),
     (2030, 12,  9_960_000, 49_800_000, 10_200_000),
-    (2031, 12, 10_199_000, 59_999_000,      1_000),   # 종료해(비망가 강제)
+    (2031, 12, 10_199_400, 59_999_400,        600),   # 종료해(잔류분 비망가)
 ]
 
 
@@ -178,7 +178,7 @@ def test_vcore_intangible_partial_disposal_matches_handcalc():
     assert got[:2] == GOLDEN_INTANG_SIMPLE[:2]          # 사건 전 = 무형 단순(외부 앵커)
     assert got[0][2] == ANNUAL6                          # 연상각 = 별표4(1/n 아님)
     assert got[-1][3] + got[-1][4] == 60_000_000        # 누계+장부 = cost−양도액
-    assert got[-1][4] == 1_000                          # 최종 장부가 = 비망가
+    assert got[-1][4] == 600   # 잔류분 비망가 = 1,000 × 잔류비율
 
 
 def test_core_intangible_partial_disposal_matches_handcalc():
@@ -197,7 +197,7 @@ GOLDEN_INTANG_PARTIAL_FYE3 = [
     (2029, 12, 12_173_332, 32_369_999, 27_630_001),   # 부분양도 연도(누계 점프 하강)
     (2030, 12,  9_960_000, 42_329_999, 17_670_001),
     (2031, 12,  9_960_000, 52_289_999,  7_710_001),
-    (2032,  9,  7_709_001, 59_999_000,      1_000),   # 종료해(9개월, 비망가)
+    (2032,  9,  7_709_401, 59_999_400,        600),   # 종료해(9개월, 잔류분 비망가)
 ]
 
 
@@ -206,7 +206,7 @@ def test_vcore_intangible_partial_disposal_fye3_matches_handcalc():
     assert got == GOLDEN_INTANG_PARTIAL_FYE3
     assert got[:3] == GOLDEN_INTANG_SIMPLE_FYE3[:3]     # 사건 전 = 무형 단순 3월(외부 앵커)
     assert got[-1][3] + got[-1][4] == 60_000_000        # 누계+장부 = cost−양도액
-    assert got[-1][4] == 1_000                          # 최종 장부가 = 비망가
+    assert got[-1][4] == 600   # 잔류분 비망가 = 1,000 × 잔류비율
 
 
 def test_core_intangible_partial_disposal_fye3_matches_handcalc():

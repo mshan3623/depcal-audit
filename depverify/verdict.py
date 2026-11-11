@@ -88,6 +88,11 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
     if merger and (disposed or development_cost):
         return Verdict("검증불능", reason="스코프외-합병승계 자산의 " + ("양도" if disposed else "개발비")
                        + "(재계산 규칙 미확립)")
+    if merger and merger < (a["acq_y"], a["acq_m"]):
+        # 승계자산은 소멸법인이 등기 전에 취득한 자산이다. 등기월이 취득월보다 앞서면 입력 오류인데,
+        # 그대로 두면 '합병 다음 해' 경로로 빠져 12개월 이중상각이 다시 '일치'가 된다(INC-23 재발).
+        return Verdict("검증불능", reason=f"가드발동: 합병 등기월({merger[0]}-{merger[1]:02d})이 취득월"
+                       f"({a['acq_y']}-{a['acq_m']:02d})보다 앞섭니다 — --merger-registration 확인")
 
     try:
         if merger:
@@ -133,8 +138,16 @@ def verify_asset(a: dict, tolerance: int = 0) -> Verdict:
             # 경보로 감사인 시간을 태우느니 모른다고 말한다.
             return Verdict("검증불능",
                            reason="비교식미확립(상각완료·전기 양도 — 대장 표시 규약 실측 앵커 0건)")
-        # 스케줄에 FY 행 없음 (상각 종료 후 제거 등) — 시스템 값이 0이어야 일치
-        d_dep, d_acc, d_bk = -exp_dep, -exp_acc, cost - exp_bk
+        if sch and fy > sch[-1].fiscal_year:
+            # 상각 종료 후 보유인데 위의 비망 표시가 아니다 — 기대값은 당기 0 / 누계 취득가−1,000 /
+            # 장부 1,000. 종전 식(`cost - exp_bk`)은 "장부가 = 취득원가"일 때만 0이 되어, 내용연수가
+            # 지나도록 한 번도 상각하지 않은 자산(0 / 0 / 원가)이 '일치'로 나왔다(평가 2026-11-10).
+            # 무형(직접상각)은 누계열이 당기분만 표시하므로 전기말누계와 합쳐서 본다.
+            d_dep, d_bk = -exp_dep, 1000 - exp_bk
+            d_acc = (cost - 1000) - (a["prev_acc"] + exp_acc if intang else exp_acc)
+        else:
+            # FY가 스케줄 시작 전(FY 이후 취득) — 시스템 값이 0이어야 일치
+            d_dep, d_acc, d_bk = -exp_dep, -exp_acc, cost - exp_bk
     else:
         if disposed and intang:
             # 무형 양도. 아래 양도 환산식 `cost - exp_acc`는 누계열이 **실제 누계**인

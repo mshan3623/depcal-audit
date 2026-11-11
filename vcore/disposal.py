@@ -149,6 +149,24 @@ def disposal_split(basis: int, acc: int, book: int, disposal_amount) -> tuple:
     return disposal_amount, disp_acc, disposal_amount - disp_acc, True
 
 
+def residual_memorandum(basis: int, disposal_amount: int) -> int:
+    """부분양도 후 잔류분의 비망가 = 1,000 × 잔류비율 (사용자 결정 2026-11-12).
+
+    비망가는 가치가 아니라 자산 단위 메모다. 일부를 양도하면 메모도 취득가액 비율로 따라
+    나가므로, 잔류분의 최종 장부가가 "원래 자산의 몇 %가 남았는가"를 말해 준다(800원 = 20%
+    양도). 부분양도가 없는 자산은 언제나 1,000원이다. 양도가 상각 종료 전이든 후든 같은 값이
+    되도록, 종료 후 양도의 안분(완전상각 상태를 `disposal_split`으로 나눈 것)과 같은 식을 쓴다.
+
+    이것은 엔진 규약이다 — 법령(시행령 §26⑦)은 부분양도 잔류분의 비망가를 정하지 않고, 더존
+    실측도 아직 없다. "잔류분도 자산 1단위이니 1,000원"이라는 해석을 검토하고도 이쪽을 택한
+    이유: 감사에서 1,000원이냐 800원이냐 하는 금액 자체는 중요하지 않다. 대장과 이 도구의 값이
+    다를 때 감사인이 그 회사의 비망가액 처리 정책을 한 번 더 들여다보게 된다는 점이 가치다.
+    부분양도가 있는 실대장이 오면 그 값으로 다시 판단한다.
+    """
+    _, _, disposed_memo, _ = disposal_split(basis, basis - MEMORANDUM, MEMORANDUM, disposal_amount)
+    return MEMORANDUM - disposed_memo
+
+
 # ── 부분양도 = 역(逆) 자본적지출 + 누계 분배 ────────────────────────────
 def apply_partial_disposal(base: List[Month], cost: int, d: int, disposal_amount: int) -> List[Month]:
     """이벤트월(상대 인덱스 d)부터 base 벡터에 잔존비율 적용. 이벤트 시점에 누계·장부가 분배.
@@ -165,7 +183,8 @@ def apply_partial_disposal(base: List[Month], cost: int, d: int, disposal_amount
                                                                disposal_amount)
     # 잔존 누계·장부가로 진입 — 스케일 루프는 capex와 공용 골격 사용
     return monthly.apply_ratio_from(base, d, cost - disposal_amount, cost,   # 잔존비율(정수)
-                                    prev.acc - disposal_accumulated, prev.book - disposal_book)
+                                    prev.acc - disposal_accumulated, prev.book - disposal_book,
+                                    residual_memorandum(cost, disposal_amount))
 
 
 def months_partial_disposal(monthly_fn, cost, life_years, acq_year, acq_month,
@@ -182,7 +201,8 @@ def months_partial_disposal(monthly_fn, cost, life_years, acq_year, acq_month,
     ev = d + 1                            # 양도월 포함(더존 공식) — 익월부터 잔존분
     months = apply_partial_disposal(base, cost, ev, disposal_amount)
     # 정률 5% 교차는 양도 익월부터 잔존 취득가액 기준으로 다시 판정(INC-18)
-    months = monthly.recut(monthly_fn, months, [(0, cost), (ev, cost - disposal_amount)])
+    months = monthly.recut(monthly_fn, months, [(0, cost), (ev, cost - disposal_amount)],
+                           residual_memorandum(cost, disposal_amount))
     return monthly.settle_terminal_evenly(months, ev)   # 자연완료: 종료해 균등(양도 이후 구간)
 
 

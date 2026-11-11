@@ -175,7 +175,8 @@ def monthly_events(cost: int, life_years: int, acq_year: int, acq_month: int,
                     f"연도별 API(schedule_partial_disposal)를 쓰면 조정행으로 표시됩니다")
             months = disposal.apply_partial_disposal(scaled, basis, d + 1, disp_amount)
             bases.append((d + 1, basis - disp_amount))    # 잔존 자산의 취득가액
-            months = monthly.recut(monthly_fn, months, bases)
+            months = monthly.recut(monthly_fn, months, bases,
+                                   disposal.residual_memorandum(basis, disp_amount))
             event_start = max(event_start, d + 1)
     if not truncated:                                     # 자연완료: 종료해 균등(마지막 이벤트 이후)
         months = monthly.settle_terminal_evenly(months, event_start)

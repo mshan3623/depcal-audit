@@ -149,3 +149,29 @@ def test_calculate_accepts_integral_values_and_digit_strings(client):
     r = client.post("/calculate", json=dict(VALID, acquisition_cost="100000000",
                                             useful_life=5.0, fiscal_year_end_month=3))
     assert r.status_code == 200, r.get_json()
+
+
+# ── 날짜·금액 짝 / 폼 금액 칸 (평가 2026-11-10) ──────────────────────────────
+@pytest.mark.parametrize("extra", [
+    {"increase_amount": 5_000_000},                              # 지출일 없음
+    {"increase_date": "2026-06-30"},                             # 지출액 없음
+    {"increase_date": "2026-06-30", "increase_amount": 0},
+    {"disposal_amount": 3_000_000},                              # 처분일 없음
+])
+def test_calculate_rejects_one_sided_event(client, extra):
+    """한쪽만 온 사건을 조용히 버리지 않는다 — 버리면 시트1과 시트3이 어긋났다."""
+    r = client.post("/calculate", json=dict(VALID, **extra))
+    assert r.status_code == 400, r.get_json()
+
+
+def test_calculate_accepts_disposal_date_alone_as_full_disposal(client):
+    r = client.post("/calculate", json=dict(VALID, disposal_date="2027-06-30"))
+    assert r.status_code == 200, r.get_json()
+
+
+def test_amount_field_does_not_strip_characters():
+    """금액 칸이 숫자 외 문자를 지우면 '12,000,000.00'이 12억이 된다 — 지우는 코드가 없어야 한다."""
+    html = open(dep_cal_web.app.jinja_loader.searchpath[0] + "/calculator.html", encoding="utf-8").read()
+    assert "replace(/[^0-9]/g" not in html
+    assert "setCustomValidity" in html
+    assert "매각대금이 아니라" in html

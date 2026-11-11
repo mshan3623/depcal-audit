@@ -33,17 +33,19 @@ def _rule_off(monkeypatch):
     """5% 교차 절단을 끈다 — 내용연수 종료해에만 정리(INC-16 이전 동작)."""
     monkeypatch.setattr(monthly, "db_month_counts",
                         lambda cost, life, m: standard_month_counts(m, life))
-    monkeypatch.setattr(monthly, "cut_at_five_percent", lambda months, bases: months,
+    monkeypatch.setattr(monthly, "cut_at_five_percent", lambda months, bases, memorandum=1000: months,
                         raising=False)
 
 
-def _expected(rows_off, basis_at_fy):
-    """규칙을 끈 연도별 표에 §26⑥ 최초 교차 해 정리를 적용한 기대값 [(FY, 상각액)]."""
+def _expected(rows_off, basis_at_fy, memo=1000):
+    """규칙을 끈 연도별 표에 §26⑥ 최초 교차 해 정리를 적용한 기대값 [(FY, 상각액)].
+
+    memo = 정리 후 남는 비망가. 부분양도 뒤에는 잔류분 몫(1,000 × 잔류비율)이다."""
     out, book = [], None
     for i, r in enumerate(rows_off):
         start = r.book_value + r.depreciation if book is None else book
         if i < len(rows_off) - 1 and r.book_value * 20 <= basis_at_fy(r.fiscal_year):
-            out.append((r.fiscal_year, start - 1000))
+            out.append((r.fiscal_year, start - memo))
             return out
         out.append((r.fiscal_year, r.depreciation))
         book = r.book_value
@@ -97,7 +99,8 @@ def test_partial_disposal_crossing_uses_remaining_cost(monkeypatch, life, acq_mo
         _rule_off(mp)
         off = disposal.schedule_partial_disposal_declining(COST, life, ACQ_YEAR, acq_month,
                                                            d_amt, dy, dm)
-    assert _yearly_pairs(got) == _expected(off, _after(dy, dm, COST - d_amt, COST))
+    assert _yearly_pairs(got) == _expected(off, _after(dy, dm, COST - d_amt, COST),
+                                           disposal.residual_memorandum(COST, d_amt))
 
 
 def _events_by_fy(months):
@@ -119,7 +122,8 @@ def test_monthly_events_capex_then_partial_disposal(monkeypatch, life, acq_month
         _rule_off(mp)
         off = monthly_events(COST, life, ACQ_YEAR, acq_month, **kw)
     off_rows = [_Row(fy, dep, book) for fy, dep, book in _fy_rows(off)]
-    assert _events_by_fy(got) == _expected(off_rows, _after(dy, dm, COST + inc - d_amt, COST + inc))
+    assert _events_by_fy(got) == _expected(off_rows, _after(dy, dm, COST + inc - d_amt, COST + inc),
+                                           disposal.residual_memorandum(COST + inc, d_amt))
 
 
 class _Row:

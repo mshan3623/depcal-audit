@@ -72,6 +72,8 @@ def summary_text(result: RunResult, fy: int, meta: Optional[dict] = None,
                 detail = v.reason if v.status == "검증불능" else \
                     f"Δ당기상각 {v.d_dep:+,} / Δ누계 {v.d_acc:+,} / Δ장부 {v.d_bk:+,}"
                 lines.append(f"    [{v.status}] {who}: {detail}")
+    elif total == 0:
+        lines.append("  ⚠ 읽은 자산이 0건입니다 — 검증한 것이 없습니다(시트·헤더 확인)")
     elif c["허용차"] == 0:
         if control is not None and not control.matched:
             # '전 자산'은 대장 전체를 읽었을 때만 말할 수 있다 — 대사가 성립하지 않으면

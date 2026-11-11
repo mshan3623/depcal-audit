@@ -57,6 +57,24 @@ from .dep_common import (
 
 logger = logging.getLogger(__name__)
 
+def _drop_zero_tail_years(schedule, fiscal_year_end_month: int, memorandum_value: int):
+    """상각이 끝난 뒤 내용연수 끝까지 붙던 상각액 0인 회계연도를 잘라낸다 — vcore
+    `straight_line.month_counts` 거울(INC-11).
+
+    별표4 정액률 × 내용연수 > 1인 35개 연수(30년: 0.034 × 30 = 1.02)는 내용연수 종료 전에 장부가가
+    비망가에 닿는다. 그 해에서 스케줄을 끝낸다(정률 5% 교차 해·분리자산 `[]`과 같은 규칙).
+    회계연도 단위로만 자른다 — 상각이 끝나는 해 안의 달은 건드리지 않는다.
+    """
+    from .dep_common import get_fiscal_year
+    while schedule and schedule[-1].book_value <= memorandum_value:
+        fy = get_fiscal_year(schedule[-1].year, schedule[-1].month, fiscal_year_end_month)
+        year = [m for m in schedule if get_fiscal_year(m.year, m.month, fiscal_year_end_month) == fy]
+        if any(m.numeric_depreciation for m in year) or len(year) == len(schedule):
+            break
+        schedule = schedule[:len(schedule) - len(year)]
+    return schedule
+
+
 def _calculate_korean_straight_line_enhanced(cost: int, life_years: int,
                                            start_date: str, salvage_value: int = 0,
                                            memorandum_value: int = 1000,
@@ -428,8 +446,8 @@ def _calculate_korean_straight_line_enhanced(cost: int, life_years: int,
     except Exception as e:
         logger.error(f"한국세법 정액법 계산 오류: {str(e)}")
         logger.error(traceback.format_exc())
-        
-    return schedule
+
+    return _drop_zero_tail_years(schedule, fiscal_year_end_month, memorandum_value)
 
 def _calculate_korean_declining_balance_enhanced(cost: int, life_years: int,
                                                start_date: str, salvage_value: int = 0,
@@ -1569,6 +1587,11 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
     current_book_value = prev_month_record.book_value - disposal_book_value
     current_accumulated = prev_month_record.accumulated_depreciation - disposal_accumulated
 
+    # 잔류분 비망가 = 1,000 × 잔류비율 (사용자 결정 2026-11-12, vcore `disposal.residual_memorandum`
+    # 거울). 비망가는 자산 단위 메모라 양도분만큼 따라 나간다 — 완전상각 상태를 같은 식으로 나눈 값.
+    residual_memorandum = memorandum_value - (
+        disposal_amount - (2 * (cost - memorandum_value) * disposal_amount + cost) // (2 * cost))
+
     # 잔존 부분 회계 방정식 검증
     remaining_cost = cost - disposal_amount
     calculated_cost = current_book_value + current_accumulated
@@ -1617,7 +1640,7 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
         # 월 감가상각비 계산
         if is_final_month:
             # 최종월: 비망가액까지
-            monthly_amount = max(0, current_book_value - memorandum_value)
+            monthly_amount = max(0, current_book_value - residual_memorandum)
             calculation_method = "한국세법정률법(부분양도-최종월)"
         elif is_last_month_of_year:
             # 결산월 보정 (fiscal year 단위)
@@ -1657,7 +1680,7 @@ def _calculate_with_partial_disposal_declining(cost: int, life_years: int, start
 
     new_schedule = _cut_at_five_percent(
         new_schedule, [((0, 0), cost), (_next_month(disposal_year, disposal_month), cost - disposal_amount)],
-        fiscal_year_end_month, memorandum_value)
+        fiscal_year_end_month, residual_memorandum)
 
     logger.info(f"부분양도 처리 완료 (정률법): 총 {len(new_schedule)}개월")
     return new_schedule
@@ -1829,6 +1852,11 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
     current_book_value = prev_month_record.book_value - disposal_book_value
     current_accumulated = prev_month_record.accumulated_depreciation - disposal_accumulated
 
+    # 잔류분 비망가 = 1,000 × 잔류비율 (사용자 결정 2026-11-12, vcore `disposal.residual_memorandum`
+    # 거울). 비망가는 자산 단위 메모라 양도분만큼 따라 나간다 — 완전상각 상태를 같은 식으로 나눈 값.
+    residual_memorandum = memorandum_value - (
+        disposal_amount - (2 * (cost - memorandum_value) * disposal_amount + cost) // (2 * cost))
+
     logger.info(f"양도 시점 조정:")
     logger.info(f"  양도 전 장부가액: {prev_month_record.book_value:,}원")
     logger.info(f"  양도 전 누적상각액: {prev_month_record.accumulated_depreciation:,}원")
@@ -1866,7 +1894,7 @@ def _calculate_with_partial_disposal(cost: int, life_years: int, start_date: str
         # 월 감가상각비 계산 (integer 원칙 적용)
         if is_final_month:
             # 최종월: 비망가액까지 (완료시 보정)
-            monthly_amount = max(0, current_book_value - memorandum_value)
+            monthly_amount = max(0, current_book_value - residual_memorandum)
             calculation_method = "정액법(부분양도-최종월)"
             logger.info(f"최종월 ({vector_month.year}-{vector_month.month:02d}): 비망가액까지 {monthly_amount:,}원")
         elif is_last_month_of_year:

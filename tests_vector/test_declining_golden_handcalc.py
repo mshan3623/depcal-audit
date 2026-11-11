@@ -159,7 +159,7 @@ GOLDEN_PARTIAL = [
     (2027, 12,  19_807_920,  41_915_940,  18_084_060),   # 양도연도(누계 점프 하강)
     (2028, 12,   8_155_911,  50_071_851,   9_928_149),
     (2029, 12,   4_477_594,  54_549_445,   5_450_555),
-    (2030, 12,   5_449_555,  59_999_000,       1_000),   # 종료해
+    (2030, 12,   5_449_955,  59_999_400,         600),   # 종료해  # 잔류분 비망가 600
 ]
 
 
@@ -169,7 +169,7 @@ def test_vcore_declining_partial_disposal_matches_handcalc():
     assert got == GOLDEN_PARTIAL
     assert got[0][2] == 45_100_000                       # 양도 전 해는 단순 정률과 동일
     assert got[-1][3] + got[-1][4] == 60_000_000         # 누계+장부가 = 잔존원가(원가−양도액)
-    assert got[-1][4] == 1_000                           # 최종 장부가 = 비망가
+    assert got[-1][4] == 600   # 잔류분 비망가 = 1,000 × 잔류비율
 
 
 def test_core_declining_partial_disposal_matches_handcalc():
@@ -189,7 +189,7 @@ GOLDEN_PARTIAL_FYE3 = [
     (2028, 12, 15_377_754, 43_954_917, 16_045_083),   # 양도연도(누계 점프 하강)
     (2029, 12,  7_236_331, 51_191_248,  8_808_752),
     (2030, 12,  3_972_746, 55_163_994,  4_836_006),
-    (2031,  9,  4_835_006, 59_999_000,      1_000),   # 종료해(9개월, 비망가)
+    (2031,  9,  4_835_406, 59_999_400,        600),   # 종료해(9개월, 잔류분 비망가)
 ]
 
 
@@ -199,7 +199,7 @@ def test_vcore_declining_partial_disposal_fye3_matches_handcalc():
     assert got == GOLDEN_PARTIAL_FYE3
     assert got[:2] == GOLDEN_YEARLY_FYE3[:2]             # 양도 전 = 정률 단순 3월(외부 앵커)
     assert got[-1][3] + got[-1][4] == 60_000_000         # 누계+장부가 = 잔존원가(원가−양도액)
-    assert got[-1][4] == 1_000                           # 최종 장부가 = 비망가
+    assert got[-1][4] == 600   # 잔류분 비망가 = 1,000 × 잔류비율
 
 
 def test_core_declining_partial_disposal_fye3_matches_handcalc():
@@ -219,7 +219,7 @@ GOLDEN_CAPEX_PARTIAL = [
     (2027, 34_478_730, 79_578_730, 50_421_270),   # capex 연도(ratio)
     (2028, 19_824_605, 70_836_038, 19_163_962),   # 부분양도 연도(누계 점프 하강)
     (2029,  8_642_945, 79_478_983, 10_521_017),
-    (2030, 10_520_017, 89_999_000,      1_000),   # 종료해
+    (2030, 10_520_325, 89_999_308,        692),   # 종료해  # 잔류분 비망가 692
 ]
 
 
@@ -243,7 +243,7 @@ def test_vcore_declining_capex_then_partial_matches_handcalc():
     assert got == GOLDEN_CAPEX_PARTIAL
     assert all(c.amount >= 0 for c in cal)               # core 버그(음수 월상각) 없음
     assert got[-1][2] + got[-1][3] == 90_000_000         # 누계+장부가 = basis−양도액
-    assert got[-1][3] == 1_000                           # 최종 장부가 = 비망가
+    assert got[-1][3] == 692   # 잔류분 비망가 = 1,000 × 잔류비율
 
 
 def test_core_declining_capex_then_partial_matches_handcalc():
@@ -349,7 +349,7 @@ GOLDEN_CAPEX_PARTIAL_FYE3 = [
     (2028, 12, 34_159_606, 85_449_581, 44_550_419),   # capex 연도 = GOLDEN_CAPEX_FYE3[2]
     (2029, 12, 15_970_751, 73_067_412, 16_932_588),   # 부분양도 연도(누계 점프 하강)
     (2030, 12,  7_636_596, 80_704_008,  9_295_992),
-    (2031,  9,  9_294_992, 89_999_000,      1_000),   # 종료해(9개월, 비망가)
+    (2031,  9,  9_295_300, 89_999_308,        692),   # 종료해(9개월, 잔류분 비망가)
 ]
 
 
@@ -361,7 +361,7 @@ def test_vcore_declining_capex_then_partial_fye3_matches_handcalc():
     assert got[:3] == GOLDEN_CAPEX_FYE3[:3]              # 사건 전 = capex 단독 3월결산(외부 앵커)
     assert all(c.amount >= 0 for c in cal)               # 음수 월상각 없음
     assert got[-1][3] + got[-1][4] == 90_000_000         # 누계+장부 = basis−양도액
-    assert got[-1][4] == 1_000                           # 최종 장부가 = 비망가
+    assert got[-1][4] == 692   # 잔류분 비망가 = 1,000 × 잔류비율
 
 
 def test_core_declining_capex_then_partial_fye3_matches_handcalc():

@@ -12,7 +12,7 @@ dep_vector — 표준형 월별 빌더 (공유)
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-from vcore.straight_line import annual_depreciation
+from vcore.straight_line import annual_depreciation, month_counts as sl_month_counts
 from vcore.declining_balance import month_counts as db_month_counts
 from vcore.rate_table import check_life_years, declining_balance_amount
 from vcore.projection import (
@@ -108,7 +108,7 @@ def settle_terminal_evenly(months: List[Month], start: int = 0) -> List[Month]:
 
 
 def apply_ratio_from(base: List[Month], start: int, num: int, den: int,
-                     acc: int, book: int) -> List[Month]:
+                     acc: int, book: int, memorandum: int = MEMORANDUM) -> List[Month]:
     """이벤트월(상대 인덱스 start)부터 base 월상각을 비율 num/den으로 스케일하는 공용 골격.
 
     비율은 **정수 분자·분모**로 받는다 — float 비율(`1.0 - D/cost`)은 정확한 정수 결과를
@@ -119,6 +119,10 @@ def apply_ratio_from(base: List[Month], start: int, num: int, den: int,
     acc·book 분배 차감)의 거울 루프 단일화 — 이벤트 진입 acc/book은 호출자가 확정해
     넘긴다. 연도별 연말보정으로 연 목표 base연합×num//den 달성, 마지막 달은 비망가
     정리, book 음수 방지(레퍼런스 동일: acc는 보정 전 금액 유지).
+
+    memorandum = 이 구간이 끝날 때 남길 비망가. 기본은 온전한 자산의 1,000원이고, 부분양도는
+    잔류분 몫(`disposal.residual_memorandum` — 1,000 × 잔류비율)을 넘긴다. 어느 달도 장부가를
+    이 값 아래로 내리지 않는다(`capped_yearly`와 같은 캡 규칙).
     """
     n = len(base)
     out = list(base[:start])
@@ -128,14 +132,15 @@ def apply_ratio_from(base: List[Month], start: int, num: int, den: int,
         year_acc.setdefault(fy, 0)
         is_final = (idx == n - 1)
         is_last_of_fy = is_final or base[idx + 1].fy_index != fy
+        room = max(0, book - memorandum)                 # 비망가까지 남은 상각 여지
         if is_final:
-            amount = max(0, book - MEMORANDUM)
+            amount = room
         elif is_last_of_fy:
             year_base_sum = sum(base[j].amount for j in range(start, n) if base[j].fy_index == fy)
             year_target = year_base_sum * num // den
-            amount = year_target - year_acc[fy]
+            amount = min(year_target - year_acc[fy], room)
         else:
-            amount = base[idx].amount * num // den
+            amount = min(base[idx].amount * num // den, room)
         year_acc[fy] += amount
         acc += amount
         book -= amount
@@ -150,7 +155,8 @@ def sl_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
     """정액법 표준형 월별."""
     annual = annual_depreciation(cost, life_years)
     return standard_monthly(cost, life_years, acq_month,
-                            lambda book, miy: (annual * miy) // 12)
+                            lambda book, miy: (annual * miy) // 12,
+                            sl_month_counts(cost, life_years, acq_month))   # 상각 완료 해에서 끝
 
 
 def db_monthly(cost: int, life_years: int, acq_month: int) -> List[Month]:
@@ -174,13 +180,15 @@ def db_monthly_uncut(cost: int, life_years: int, acq_month: int) -> List[Month]:
                             lambda book, miy: declining_balance_amount(book, life_years, miy))
 
 
-def cut_at_five_percent(months: List[Month], bases: List[Tuple[int, int]]) -> List[Month]:
+def cut_at_five_percent(months: List[Month], bases: List[Tuple[int, int]],
+                        memorandum: int = MEMORANDUM) -> List[Month]:
     """§26⑥: 회계연도 말 미상각잔액이 **최초로** 그 시점 취득가액의 5% 이하가 되는 해에 정리.
 
     bases = [(시작 인덱스, 그 달부터의 취득가액)] 오름차순 — 원가, 자본적지출 증가월부터
     원가+증가액, 부분양도 익월부터 잔존 취득가액. 그 해 마지막 달이 잔액을 비망가까지 정리하고
     이후 달은 없다. 내용연수 종료해는 판정 밖(이미 비망가 정리) — `month_counts`와 같은 규칙.
     단일 구간 [(0, 원가)]이면 `db_monthly`와 같은 벡터다.
+    memorandum = 정리 후 남길 비망가(부분양도 후에는 잔류분 몫 — `apply_ratio_from`과 같은 값).
     """
     for i in range(len(months) - 1):
         if months[i + 1].fy_index == months[i].fy_index:
@@ -191,7 +199,7 @@ def cut_at_five_percent(months: List[Month], bases: List[Tuple[int, int]]) -> Li
             # 그 달 기초 장부가를 비망가까지 정리. 잔존분이 작아 이미 비망가 미만이면 더 내리지도
             # 올리지도 않는다(`apply_ratio_from` 마지막 달 `max(0, book - 비망가)`와 같은 규칙).
             before = m.book + m.amount
-            amount = max(0, before - MEMORANDUM)
+            amount = max(0, before - memorandum)
             return months[:i] + [Month(m.fy_index, amount, m.acc - m.amount + amount, before - amount)]
     return months
 
@@ -208,9 +216,10 @@ def event_bases(monthly_fn, cost: int, life_years: int, acq_month: int):
     return natural, natural
 
 
-def recut(monthly_fn, months: List[Month], bases: List[Tuple[int, int]]) -> List[Month]:
+def recut(monthly_fn, months: List[Month], bases: List[Tuple[int, int]],
+          memorandum: int = MEMORANDUM) -> List[Month]:
     """이벤트 적용 후 정률 5% 교차를 이벤트 후 취득가액으로 다시 판정. 정액은 그대로."""
-    return cut_at_five_percent(months, bases) if monthly_fn is db_monthly else months
+    return cut_at_five_percent(months, bases, memorandum) if monthly_fn is db_monthly else months
 
 
 def group(months: List[Month], fy0: int) -> List[FiscalYearRow]:

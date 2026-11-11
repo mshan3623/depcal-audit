@@ -11,7 +11,7 @@ import sys
 
 from depverify.compliance import check_vehicles, summary_lines
 from depverify.provenance import collect
-from depverify.reader import read_ledger, tag_merger_succession
+from depverify.reader import other_ledger_sheets, read_ledger, tag_merger_succession
 from depverify.report import summary_text, write_xlsx
 from depverify.verdict import verify_all
 
@@ -42,7 +42,7 @@ def _main(argv=None) -> int:
     p.add_argument("xlsx", help="고정자산관리대장 xlsx 경로")
     p.add_argument("--fy", type=int, help="검증 대상 회계연도 (생략 시 파일명 _YYYY1231에서 추정)")
     p.add_argument("--fye", type=int, default=12, help="결산월 (기본 12)")
-    p.add_argument("--sheet", default=0, help="시트 이름 또는 인덱스 (기본 첫 시트)")
+    p.add_argument("--sheet", help="시트 이름 또는 인덱스 (기본 첫 시트 — 대장 시트가 여럿이면 필수)")
     p.add_argument("--mapping", help="컬럼 매핑 JSON 파일 (더존 표준 레이아웃이 아닐 때)")
     p.add_argument("--tolerance", type=int, default=0, metavar="원",
                    help="감사인 허용차(원, 기본 0=원단위 완전일치). "
@@ -81,7 +81,14 @@ def _main(argv=None) -> int:
 
     # "1"은 시트 **이름**이 아니라 인덱스로 해석돼야 한다 — 문자열로 흘리면 pandas가
     # 이름으로 찾다가 실패한다(감사 G19). 이름이 숫자인 시트는 없다고 본다.
-    sheet = int(args.sheet) if str(args.sheet).lstrip("-").isdigit() else args.sheet
+    sheet = 0 if args.sheet is None else (
+        int(args.sheet) if str(args.sheet).lstrip("-").isdigit() else args.sheet)
+
+    out = args.out or re.sub(r"\.xlsx$", "", args.xlsx) + "_검증보고서.xlsx"
+    if os.path.abspath(out) == os.path.abspath(args.xlsx):
+        # 보고서가 원본 대장을 덮어쓰면 보고서에 찍힌 SHA-256이 사라진 파일을 가리킨다
+        print("오류: --out이 입력 대장과 같은 파일입니다 — 대장을 덮어쓰지 않습니다", file=sys.stderr)
+        return 2
 
     try:
         assets, unreadable, structural, control = read_ledger(
@@ -89,6 +96,16 @@ def _main(argv=None) -> int:
     except (FileNotFoundError, ValueError) as e:
         print(f"오류: {e}", file=sys.stderr)
         return 2
+
+    # 한 실행은 한 시트만 검증한다. 대장 시트가 더 있는데 말없이 첫 시트만 보고 "전 자산 일치"라고
+    # 하면 나머지 시트가 흔적 없이 빠진다 — 고르게 하고, 고른 뒤에도 남은 시트를 적는다.
+    others = other_ledger_sheets(args.xlsx, sheet, mapping)
+    if others and args.sheet is None:
+        print(f"오류: 통합문서에 대장 시트가 더 있습니다: {others} — 한 번에 한 시트만 검증합니다. "
+              f"--sheet로 시트를 지정해 시트마다 따로 실행하세요", file=sys.stderr)
+        return 2
+    if others:
+        print(f"[완전성] 이 실행이 검증하지 않은 대장 시트: {others}\n")
 
     if merger:
         n = tag_merger_succession(assets, args.merger_prefix, *merger)
@@ -105,6 +122,8 @@ def _main(argv=None) -> int:
     # 출처 정보는 판정 직후 수집한다 — 보고서와 stdout이 같은 값을 쓴다.
     meta = collect(args.xlsx, fy, args.fye, args.tolerance,
                    sheet=sheet, mapping_path=args.mapping)
+    if others:
+        meta["검증하지 않은 시트"] = ", ".join(others)
     if merger:                             # 재현성 — 같은 대장도 이 설정에 따라 판정이 달라진다
         meta["합병 승계"] = (f"등기 {merger[0]}-{merger[1]:02d}, 접두 '{args.merger_prefix}' "
                          f"— 등기월 다음 달부터 상각")
@@ -121,7 +140,6 @@ def _main(argv=None) -> int:
     for line in summary_lines(findings, unchecked=len(unreadable)):
         print(line)
 
-    out = args.out or re.sub(r"\.xlsx$", "", args.xlsx) + "_검증보고서.xlsx"
     write_xlsx(result, fy, out, meta, findings, control, unchecked=len(unreadable))
     print(f"보고서: {out}")
 
@@ -130,7 +148,8 @@ def _main(argv=None) -> int:
     # 판정 결과 자체가 불완전하다. 합계행이 없어 대사 불가인 경우는 실패로 보지 않는다
     # (미검증이지 불일치가 아니다 — 보고서 첫 줄에 그렇게 적힌다). 합계행을 찾았는데 금액을
     # 못 읽은 것은 실패다 — 이것까지 '없음'으로 보면 게이트가 조용히 꺼진다(INC-21).
-    return 1 if (c["차이"] or c["검증불능"] or control.failed) else 0
+    # 읽은 자산이 0건이면 검증한 것이 없다 — exit 0만 보는 배치가 빈 대장을 통과로 읽지 않게 한다.
+    return 1 if (c["차이"] or c["검증불능"] or control.failed or not result.items) else 0
 
 
 if __name__ == "__main__":

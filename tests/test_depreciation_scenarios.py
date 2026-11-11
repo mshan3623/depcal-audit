@@ -773,8 +773,8 @@ def test_numeric_straight_line_partial_disposal_rebases_remaining_asset():
     assert jun_2025["monthly_dep"] == 133333
     assert jul_2025["book_value"] + jul_2025["accumulated_dep"] == 3200000   # 익월부터 잔존 기준
     assert jul_2025["monthly_dep"] == 53333
-    assert dec_2026["book_value"] == 1000
-    assert dec_2026["accumulated_dep"] == 3199000
+    assert dec_2026["book_value"] == 400            # 잔류분 비망가 = 1,000 × 40%
+    assert dec_2026["accumulated_dep"] == 3199600
 
 
 def run_all_tests():

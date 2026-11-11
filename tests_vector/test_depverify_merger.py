@@ -108,3 +108,12 @@ def test_cli_prefix_matching_nothing_stops(tmp_path):
     path = _write(tmp_path, [_row("자체자산", TWELVE, PREV + TWELVE, COST - PREV - TWELVE)])
     assert main([path, "--fy", "2026", "--out", str(tmp_path / "r.xlsx"),
                  "--merger-registration", "2026-02", "--merger-prefix", PREFIX]) == 2
+
+
+def test_registration_before_acquisition_is_unverifiable(tmp_path):
+    """등기월이 취득월보다 앞서면 입력 오류 — '합병 다음 해' 경로로 빠져 일치가 되지 않는다."""
+    rows = [_row(PREFIX + "서버", TWELVE, PREV + TWELVE, COST - PREV - TWELVE)]
+    assets = _assets(tmp_path, rows)
+    tag_merger_succession(assets, PREFIX, 2025, 2)            # 취득 2025-06보다 앞
+    v = verify_asset(assets[0])
+    assert v.status == "검증불능" and "등기월" in v.reason

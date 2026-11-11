@@ -113,8 +113,8 @@ def test_capex_then_partial_disposal_declining_invariants():
     """
     got = _vcore_monthly(True, (2026, 4), 12, inc=(3_000_000, 2027, 6), disp=(4_000_000, 2028, 7))
     assert all(r[2] >= 0 for r in got), "음수 월상각 발생"
-    assert got[-1][3] == 10_000_000 + 3_000_000 - 4_000_000 - 1_000   # 최종 누계 = 잔존원가 - 비망
-    assert got[-1][4] == 1_000                                        # 최종 장부 = 비망가
+    assert got[-1][3] == 10_000_000 + 3_000_000 - 4_000_000 - 692     # 최종 누계 = 잔존원가 - 잔류분 비망
+    assert got[-1][4] == 692                                          # 잔류분 비망가 = 1,000 × 9/13
 
 
 def test_golden_intangible_yearly():

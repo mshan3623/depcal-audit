@@ -178,6 +178,14 @@ class AssetInput:
         if self.increase_amount is not None and self.increase_amount < 0:
             return False, "증가금액은 0 이상이어야 합니다"
 
+        # 날짜와 금액은 짝이다. 한쪽만 오면 스케줄은 사건을 버리는데 시트1 처분 제거액은 증가금액을
+        # 통합원가에 더해, 한 파일 안에서 시트1과 시트3이 어긋났다(평가 2026-11-10) — 버리지 않고 거부한다.
+        # 처분은 날짜만 있으면 전부양도라 금액 없는 날짜는 허용한다.
+        if bool(self.increase_date) != bool(self.increase_amount):
+            return False, "자본적지출은 지출일과 지출액을 함께 입력해야 합니다"
+        if self.disposal_amount is not None and not self.disposal_date:
+            return False, "처분금액을 입력했으면 처분일도 입력해야 합니다"
+
         # 처분 후 자본적지출은 성립하지 않는다 — 두 진입점(웹·CLI)이 같이 막히도록 여기 한 곳에 둔다
         if self.disposal_date and self.increase_date:
             try:
@@ -414,6 +422,14 @@ class ExcelGenerator:
             'is_partial': is_partial
         }
 
+    def _memorandum(self) -> int:
+        """이 자산이 끝날 때 남는 비망가. 부분양도 잔류분은 1,000 × 잔류비율(vcore 단일 관문)."""
+        if self.disposal_info and self.disposal_info['is_partial']:
+            ai = self.asset_input
+            return disposal.residual_memorandum(ai.acquisition_cost + (ai.increase_amount or 0),
+                                                ai.disposal_amount)
+        return 1000
+
     def _create_sheet1_input_info(self, ws, title_font, title_align, info_font, info_fill,
                                     data_align_center, data_align_right, border_thin):
         """Sheet 1: 입력 정보"""
@@ -440,7 +456,8 @@ class ExcelGenerator:
             ("", "내용연수", self.asset_input.useful_life, "년"),
             ("", "", "", ""),
             ("계산 정보", "잔존가액", 0, "원"),
-            ("", "비망가액", 1000, "원"),
+            ("", "비망가액", self._memorandum(),
+             "원 (부분양도 잔류분 = 1,000 × 잔류비율)" if self._memorandum() != 1000 else "원"),
         ]
 
         # 자본적지출 정보 추가 (있는 경우)
@@ -564,8 +581,8 @@ class ExcelGenerator:
 
             # 비고 결정
             note = ""
-            if data["ending_book_value"] == 1000:
-                note = "감가상각 완료 (비망가액 1,000원)"
+            if data["ending_book_value"] == self._memorandum():
+                note = f"감가상각 완료 (비망가액 {self._memorandum():,}원)"
             elif data["months"] < 12:
                 if year == min(yearly_data.keys()):
                     note = f"취득년도 ({data['months']}개월)"

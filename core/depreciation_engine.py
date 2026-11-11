@@ -347,11 +347,18 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
         # 2026-09-03: 단순 스케줄(이벤트 없음)에도 확대 — 2026-06-13 "정액·정률 동일 원칙"
         # 결정이 정액에 미적용이라 별표4율 × n ≠ 1인 연수(6·7·14년 등)의 잔재를 12월에
         # 몰아넣고 있었다(vcore는 균등). docs/audit_lattice_2026-09-03.md (비공개 문서) G28.
+        # 부분양도 잔류분은 비망가가 1,000 × 잔류비율로 끝난다(사용자 결정 2026-11-12, vcore
+        # `disposal.residual_memorandum` 거울) — 그것도 자연완료다. 종료 후 부분양도는 월별
+        # 스케줄이 1,000으로 끝나고 안분은 아래 연도별 조정행에서 한다.
+        natural_end_books = {1000}
+        if is_partial_disposal:
+            natural_end_books.add(1000 - (financials.disposal_amount - (
+                2 * (basis - 1000) * financials.disposal_amount + basis) // (2 * basis)))
         if not has_prior \
                 and financials.method in (DepreciationMethod.STRAIGHT_LINE,
                                           DepreciationMethod.DECLINING_BALANCE,
                                           DepreciationMethod.INTANGIBLE) \
-                and schedule and schedule[-1].book_value == 1000:
+                and schedule and schedule[-1].book_value in natural_end_books:
             event_starts = []
             if has_increase:
                 iy, im, _ = parse_date_safe(financials.increase_date)
@@ -372,17 +379,26 @@ def calculate_depreciation_enhanced(financials: AssetFinancials,
                 and schedule and yearly_summary):
             disp_y, disp_m, _ = parse_date_safe(financials.disposal_date)
             last_m = schedule[-1]
-            if (disp_y, disp_m) > (last_m.year, last_m.month):   # 양도가 마지막 감가상각월 이후
+            # 종료월 양도(==)도 포함한다 — 그 달까지 상각한 뒤 분배만 남으므로 종료 후 양도와 같다.
+            # 종전엔 `>`라 종료월 부분양도가 무흔적으로 사라졌다(vcore는 P-d MED-4에서 수정, core 누락).
+            if (disp_y, disp_m) >= (last_m.year, last_m.month):   # 양도가 마지막 감가상각월 또는 그 이후
                 last_s = yearly_summary[-1]
                 disp_acc = ((2 * last_s.accumulated_depreciation * financials.disposal_amount + financials.cost)
                             // (2 * financials.cost))
                 disp_book = financials.disposal_amount - disp_acc
-                yearly_summary.append(YearlySummary(
-                    year=get_fiscal_year(disp_y, disp_m, fiscal_year_end_month),
-                    yearly_depreciation=0,
-                    accumulated_depreciation=last_s.accumulated_depreciation - disp_acc,
-                    ending_book_value=last_s.ending_book_value - disp_book,
-                    months_count=0))
+                disp_fy = get_fiscal_year(disp_y, disp_m, fiscal_year_end_month)
+                if disp_fy == last_s.year:
+                    # 종료해와 같은 회계연도의 양도는 그 행에 병합한다 — 행을 따로 붙이면 한 회계연도에
+                    # 행이 둘이 된다(vcore 감사 G10과 같은 규칙, core 누락).
+                    last_s.accumulated_depreciation -= disp_acc
+                    last_s.ending_book_value -= disp_book
+                else:
+                    yearly_summary.append(YearlySummary(
+                        year=disp_fy,
+                        yearly_depreciation=0,
+                        accumulated_depreciation=last_s.accumulated_depreciation - disp_acc,
+                        ending_book_value=last_s.ending_book_value - disp_book,
+                        months_count=0))
 
         # 총계 계산
         total_depreciation = sum(m.numeric_depreciation for m in schedule)

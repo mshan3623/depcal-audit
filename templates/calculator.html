@@ -302,9 +302,10 @@
                             <input type="date" id="disposal_date" name="disposal_date">
                         </div>
                         <div class="form-group">
-                            <label for="disposal_amount">처분금액</label>
+                            <label for="disposal_amount">처분분 취득원가 (일부 처분일 때만)</label>
                             <input type="text" id="disposal_amount" name="disposal_amount"
-                                   placeholder="예: 10,000,000" class="amount-input">
+                                   placeholder="전부 처분이면 비워 두세요" class="amount-input">
+                            <small>매각대금이 아니라 장부에서 제거할 취득원가입니다. 전부 처분·폐기는 비워 둡니다.</small>
                         </div>
                     </div>
                 </div>
@@ -321,11 +322,15 @@
     <script>
         // 금액 입력 필드 포맷팅 (콤마 추가)
         function formatNumber(input) {
-            let value = input.value.replace(/[^0-9]/g, '');
-            if (value) {
-                value = parseInt(value).toLocaleString('ko-KR');
+            // 숫자와 콤마만 받는다. 종전에는 숫자 외 문자를 지워 "12,000,000.00"이 12억,
+            // "-5000000"이 500만으로 조용히 바뀌었다(평가 2026-11-10) — 지우지 않고 거부한다.
+            const raw = input.value.replace(/[,\s]/g, '');
+            if (raw === '' || /^\d+$/.test(raw)) {
+                input.value = raw.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+$)/g, ',');
+                input.setCustomValidity('');
+            } else {
+                input.setCustomValidity('원 단위 정수만 입력하세요 (소수점·부호·문자 불가)');
             }
-            input.value = value;
         }
 
         // 금액 입력 필드에 이벤트 리스너 추가
